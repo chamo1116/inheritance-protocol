@@ -23,20 +23,9 @@ contract DigitalWillTest is Test {
 
     // Deploy contract
     function testDeployContract() public view {
-        assertEq(
-            digitalWill.grantor(),
-            grantor_,
-            "Grantor should be set correctly"
-        );
-        assertEq(
-            digitalWill.lastCheckIn(),
-            block.timestamp,
-            "Last check-in should be set correctly"
-        );
-        assertEq(
-            uint256(digitalWill.state()),
-            uint256(DigitalWill.ContractState.ACTIVE)
-        );
+        assertEq(digitalWill.grantor(), grantor_, "Grantor should be set correctly");
+        assertEq(digitalWill.lastCheckIn(), block.timestamp, "Last check-in should be set correctly");
+        assertEq(uint256(digitalWill.state()), uint256(DigitalWill.ContractState.ACTIVE));
     }
 
     // Check in
@@ -71,11 +60,7 @@ contract DigitalWillTest is Test {
         vm.prank(grantor_);
         digitalWill.checkIn();
 
-        assertEq(
-            digitalWill.lastCheckIn(),
-            checkInTime,
-            "lastCheckIn should be updated to current timestamp"
-        );
+        assertEq(digitalWill.lastCheckIn(), checkInTime, "lastCheckIn should be updated to current timestamp");
     }
 
     function testCheckInEmitsEvent() public {
@@ -102,16 +87,8 @@ contract DigitalWillTest is Test {
         digitalWill.checkIn();
         uint256 secondCheckIn = digitalWill.lastCheckIn();
 
-        assertGt(
-            secondCheckIn,
-            firstCheckIn,
-            "Second check-in should have later timestamp"
-        );
-        assertEq(
-            secondCheckIn,
-            block.timestamp,
-            "Second check-in should match current block timestamp"
-        );
+        assertGt(secondCheckIn, firstCheckIn, "Second check-in should have later timestamp");
+        assertEq(secondCheckIn, block.timestamp, "Second check-in should match current block timestamp");
     }
 
     // Fuzzing
@@ -127,10 +104,6 @@ contract DigitalWillTest is Test {
         vm.prank(grantor_);
         digitalWill.checkIn();
 
-        assertEq(
-            digitalWill.lastCheckIn(),
-            block.timestamp,
-            "lastCheckIn should match current timestamp"
-        );
+        assertEq(digitalWill.lastCheckIn(), block.timestamp, "lastCheckIn should match current timestamp");
     }
 }

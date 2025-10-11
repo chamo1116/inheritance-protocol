@@ -82,11 +82,11 @@ contract DigitalWillTest is Test {
         // we'll need to manually set it using vm.store for testing purposes
 
         // Arrange - Set contract state to CLAIMABLE (1)
-        // The state variable is at slot 1 (lastCheckIn=0, state=1, heartbeatInterval=2)
+        // Storage: slot 0=ReentrancyGuard, slot 1=lastCheckIn, slot 2=state, slot 3=heartbeatInterval
         // Note: grantor is immutable so not in storage
         vm.store(
             address(digitalWill),
-            bytes32(uint256(1)), // slot 1 for state
+            bytes32(uint256(2)), // slot 2 for state
             bytes32(uint256(1)) // ContractState.CLAIMABLE
         );
 
@@ -163,7 +163,7 @@ contract DigitalWillTest is Test {
         // Set contract state to CLAIMABLE (1)
         vm.store(
             address(digitalWill),
-            bytes32(uint256(1)), // slot 1 for state
+            bytes32(uint256(2)), // slot 2 for state
             bytes32(uint256(1)) // ContractState.CLAIMABLE
         );
 
@@ -326,7 +326,7 @@ contract DigitalWillTest is Test {
 
         vm.store(
             address(digitalWill),
-            bytes32(uint256(1)), // slot 1 for state
+            bytes32(uint256(2)), // slot 2 for state
             bytes32(uint256(1)) // ContractState.CLAIMABLE
         );
 

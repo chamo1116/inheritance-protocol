@@ -4,6 +4,16 @@ pragma solidity 0.8.24;
 import {Test, console} from "forge-std/Test.sol";
 import {DigitalWill} from "../src/DigitalWill.sol";
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+
+// Mock ERC20 contract for testing
+contract MockERC20 is ERC20 {
+    constructor(string memory name, string memory symbol) ERC20(name, symbol) {}
+
+    function mint(address to, uint256 amount) public {
+        _mint(to, amount);
+    }
+}
 
 // Mock ERC721 contract for testing
 contract MockERC721 is ERC721 {
@@ -25,6 +35,7 @@ contract MockERC721 is ERC721 {
 
 contract DigitalWillTest is Test {
     DigitalWill public digitalWill;
+    MockERC20 public mockToken;
     MockERC721 public mockNFT;
 
     address public grantor_;
@@ -47,7 +58,8 @@ contract DigitalWillTest is Test {
         beneficiary_ = makeAddr("beneficiary");
         randomUser_ = makeAddr("randomUser");
 
-        // Deploy mock NFT contract
+        // Deploy mock contracts
+        mockToken = new MockERC20("MockToken", "MTK");
         mockNFT = new MockERC721("MockNFT", "MNFT");
 
         // Deploy contract as grantor with 30 days heartbeat interval
@@ -268,6 +280,317 @@ contract DigitalWillTest is Test {
         vm.expectRevert("Use depositETH function");
         (bool success,) = address(digitalWill).call{value: 1 ether}("");
         success; // Silence unused variable warning
+
+        vm.stopPrank();
+    }
+
+    // depositERC20
+
+    function testDepositERC20RevertsWhenNotGrantor() public {
+        uint256 depositAmount = 1000 * 10 ** 18; // 1000 tokens
+        mockToken.mint(randomUser_, depositAmount);
+
+        vm.startPrank(randomUser_);
+        mockToken.approve(address(digitalWill), depositAmount);
+
+        vm.expectRevert("You are not the grantor");
+        digitalWill.depositERC20(address(mockToken), depositAmount, beneficiary_);
+        vm.stopPrank();
+    }
+
+    function testDepositERC20RevertsWithInvalidTokenAddress() public {
+        vm.startPrank(grantor_);
+        vm.expectRevert("Invalid token address");
+        digitalWill.depositERC20(address(0), 1000, beneficiary_);
+        vm.stopPrank();
+    }
+
+    function testDepositERC20RevertsWithZeroAmount() public {
+        vm.startPrank(grantor_);
+        vm.expectRevert("Amount must be greater than 0");
+        digitalWill.depositERC20(address(mockToken), 0, beneficiary_);
+        vm.stopPrank();
+    }
+
+    function testDepositERC20RevertsWithInvalidBeneficiaryAddress() public {
+        uint256 depositAmount = 1000 * 10 ** 18;
+        mockToken.mint(grantor_, depositAmount);
+
+        vm.startPrank(grantor_);
+        mockToken.approve(address(digitalWill), depositAmount);
+
+        vm.expectRevert("Invalid beneficiary address");
+        digitalWill.depositERC20(address(mockToken), depositAmount, address(0));
+        vm.stopPrank();
+    }
+
+    function testDepositERC20RevertsWhenNotActive() public {
+        uint256 depositAmount = 1000 * 10 ** 18;
+        mockToken.mint(grantor_, depositAmount);
+
+        vm.startPrank(grantor_);
+        mockToken.approve(address(digitalWill), depositAmount);
+
+        // Set contract state to CLAIMABLE (1)
+        vm.store(
+            address(digitalWill),
+            bytes32(uint256(2)), // slot 2 for state
+            bytes32(uint256(1)) // ContractState.CLAIMABLE
+        );
+
+        vm.expectRevert("Contract must be active");
+        digitalWill.depositERC20(address(mockToken), depositAmount, beneficiary_);
+        vm.stopPrank();
+    }
+
+    function testDepositERC20Successfully() public {
+        uint256 depositAmount = 1000 * 10 ** 18;
+        mockToken.mint(grantor_, depositAmount);
+
+        vm.startPrank(grantor_);
+        mockToken.approve(address(digitalWill), depositAmount);
+
+        uint256 initialBalance = mockToken.balanceOf(address(digitalWill));
+
+        digitalWill.depositERC20(address(mockToken), depositAmount, beneficiary_);
+
+        // Check contract balance updated
+        assertEq(
+            mockToken.balanceOf(address(digitalWill)),
+            initialBalance + depositAmount,
+            "Contract balance should increase by deposit amount"
+        );
+
+        // Check asset stored correctly
+        (
+            DigitalWill.AssetType assetType,
+            address tokenAddress,
+            uint256 tokenId,
+            uint256 amount,
+            address storedBeneficiary,
+            bool claimed
+        ) = digitalWill.assets(0);
+
+        assertEq(uint256(assetType), uint256(DigitalWill.AssetType.ERC20), "Asset type should be ERC20");
+        assertEq(tokenAddress, address(mockToken), "Token address should match");
+        assertEq(tokenId, 0, "Token ID should be 0 for ERC20");
+        assertEq(amount, depositAmount, "Amount should match");
+        assertEq(storedBeneficiary, beneficiary_, "Beneficiary should match");
+        assertFalse(claimed, "Should not be claimed");
+
+        // Check beneficiaryAssets mapping updated
+        uint256 assetIndex = digitalWill.beneficiaryAssets(beneficiary_, 0);
+        assertEq(assetIndex, 0, "Asset index should be 0 for first asset");
+        vm.stopPrank();
+    }
+
+    function testDepositERC20EmitsEvent() public {
+        uint256 depositAmount = 1000 * 10 ** 18;
+        mockToken.mint(grantor_, depositAmount);
+
+        vm.startPrank(grantor_);
+        mockToken.approve(address(digitalWill), depositAmount);
+
+        vm.expectEmit(true, true, true, true);
+        emit AssetDeposited(grantor_, DigitalWill.AssetType.ERC20, address(mockToken), 0, depositAmount, beneficiary_);
+
+        digitalWill.depositERC20(address(mockToken), depositAmount, beneficiary_);
+        vm.stopPrank();
+    }
+
+    function testDepositERC20MultipleDeposits() public {
+        vm.startPrank(grantor_);
+
+        uint256 amount1 = 1000 * 10 ** 18;
+        uint256 amount2 = 2000 * 10 ** 18;
+        uint256 amount3 = 3000 * 10 ** 18;
+
+        mockToken.mint(grantor_, amount1 + amount2 + amount3);
+
+        // First deposit
+        mockToken.approve(address(digitalWill), amount1);
+        digitalWill.depositERC20(address(mockToken), amount1, beneficiary_);
+
+        // Second deposit
+        mockToken.approve(address(digitalWill), amount2);
+        digitalWill.depositERC20(address(mockToken), amount2, beneficiary_);
+
+        // Third deposit
+        mockToken.approve(address(digitalWill), amount3);
+        digitalWill.depositERC20(address(mockToken), amount3, beneficiary_);
+
+        // Check contract balance
+        assertEq(
+            mockToken.balanceOf(address(digitalWill)),
+            amount1 + amount2 + amount3,
+            "Contract should have total of all deposits"
+        );
+
+        // Check all three assets stored
+        (,,, uint256 storedAmount1,,) = digitalWill.assets(0);
+        (,,, uint256 storedAmount2,,) = digitalWill.assets(1);
+        (,,, uint256 storedAmount3,,) = digitalWill.assets(2);
+
+        assertEq(storedAmount1, amount1, "First asset amount should match");
+        assertEq(storedAmount2, amount2, "Second asset amount should match");
+        assertEq(storedAmount3, amount3, "Third asset amount should match");
+
+        // Check beneficiaryAssets has all three indices
+        assertEq(digitalWill.beneficiaryAssets(beneficiary_, 0), 0, "First asset index");
+        assertEq(digitalWill.beneficiaryAssets(beneficiary_, 1), 1, "Second asset index");
+        assertEq(digitalWill.beneficiaryAssets(beneficiary_, 2), 2, "Third asset index");
+        vm.stopPrank();
+    }
+
+    function testDepositERC20MultipleBeneficiaries() public {
+        vm.startPrank(grantor_);
+        address beneficiary1 = makeAddr("beneficiary1");
+        address beneficiary2 = makeAddr("beneficiary2");
+        address beneficiary3 = makeAddr("beneficiary3");
+
+        uint256 amount1 = 1000 * 10 ** 18;
+        uint256 amount2 = 2000 * 10 ** 18;
+        uint256 amount3 = 3000 * 10 ** 18;
+
+        mockToken.mint(grantor_, amount1 + amount2 + amount3);
+
+        // Deposit to different beneficiaries
+        mockToken.approve(address(digitalWill), amount1);
+        digitalWill.depositERC20(address(mockToken), amount1, beneficiary1);
+
+        mockToken.approve(address(digitalWill), amount2);
+        digitalWill.depositERC20(address(mockToken), amount2, beneficiary2);
+
+        mockToken.approve(address(digitalWill), amount3);
+        digitalWill.depositERC20(address(mockToken), amount3, beneficiary3);
+
+        // Check contract balance
+        assertEq(
+            mockToken.balanceOf(address(digitalWill)), amount1 + amount2 + amount3, "Contract should have total balance"
+        );
+
+        // Check each beneficiary has correct asset
+        (,,,, address stored1,) = digitalWill.assets(0);
+        (,,,, address stored2,) = digitalWill.assets(1);
+        (,,,, address stored3,) = digitalWill.assets(2);
+
+        assertEq(stored1, beneficiary1, "First beneficiary should match");
+        assertEq(stored2, beneficiary2, "Second beneficiary should match");
+        assertEq(stored3, beneficiary3, "Third beneficiary should match");
+
+        // Check each beneficiary's asset mapping
+        assertEq(digitalWill.beneficiaryAssets(beneficiary1, 0), 0, "Beneficiary1 asset index");
+        assertEq(digitalWill.beneficiaryAssets(beneficiary2, 0), 1, "Beneficiary2 asset index");
+        assertEq(digitalWill.beneficiaryAssets(beneficiary3, 0), 2, "Beneficiary3 asset index");
+        vm.stopPrank();
+    }
+
+    function testDepositERC20WithDifferentTokens() public {
+        // Create another ERC20 token
+        MockERC20 mockToken2 = new MockERC20("MockToken2", "MTK2");
+
+        vm.startPrank(grantor_);
+
+        uint256 amount1 = 1000 * 10 ** 18;
+        uint256 amount2 = 2000 * 10 ** 18;
+
+        // Mint and deposit from first token
+        mockToken.mint(grantor_, amount1);
+        mockToken.approve(address(digitalWill), amount1);
+        digitalWill.depositERC20(address(mockToken), amount1, beneficiary_);
+
+        // Mint and deposit from second token
+        mockToken2.mint(grantor_, amount2);
+        mockToken2.approve(address(digitalWill), amount2);
+        digitalWill.depositERC20(address(mockToken2), amount2, beneficiary_);
+
+        // Check both tokens stored with correct addresses
+        (, address token1,,,,) = digitalWill.assets(0);
+        (, address token2,,,,) = digitalWill.assets(1);
+
+        assertEq(token1, address(mockToken), "First token address should match");
+        assertEq(token2, address(mockToken2), "Second token address should match");
+
+        // Check balances
+        assertEq(mockToken.balanceOf(address(digitalWill)), amount1, "Token1 balance should match");
+        assertEq(mockToken2.balanceOf(address(digitalWill)), amount2, "Token2 balance should match");
+
+        vm.stopPrank();
+    }
+
+    function testDepositERC20WithoutApprovalReverts() public {
+        uint256 depositAmount = 1000 * 10 ** 18;
+        mockToken.mint(grantor_, depositAmount);
+
+        vm.startPrank(grantor_);
+        // Don't approve the transfer
+
+        vm.expectRevert();
+        digitalWill.depositERC20(address(mockToken), depositAmount, beneficiary_);
+
+        vm.stopPrank();
+    }
+
+    function testDepositERC20WithInsufficientBalanceReverts() public {
+        uint256 depositAmount = 1000 * 10 ** 18;
+        // Mint less than deposit amount
+        mockToken.mint(grantor_, depositAmount / 2);
+
+        vm.startPrank(grantor_);
+        mockToken.approve(address(digitalWill), depositAmount);
+
+        vm.expectRevert();
+        digitalWill.depositERC20(address(mockToken), depositAmount, beneficiary_);
+
+        vm.stopPrank();
+    }
+
+    function testDepositERC20WithInsufficientAllowanceReverts() public {
+        uint256 depositAmount = 1000 * 10 ** 18;
+        mockToken.mint(grantor_, depositAmount);
+
+        vm.startPrank(grantor_);
+        // Approve less than deposit amount
+        mockToken.approve(address(digitalWill), depositAmount / 2);
+
+        vm.expectRevert();
+        digitalWill.depositERC20(address(mockToken), depositAmount, beneficiary_);
+
+        vm.stopPrank();
+    }
+
+    function testDepositERC20MixedWithOtherAssets() public {
+        vm.startPrank(grantor_);
+        vm.deal(grantor_, 10 ether);
+
+        uint256 tokenAmount = 1000 * 10 ** 18;
+        mockToken.mint(grantor_, tokenAmount);
+
+        // Deposit ETH
+        digitalWill.depositETH{value: 1 ether}(beneficiary_);
+
+        // Deposit ERC20
+        mockToken.approve(address(digitalWill), tokenAmount);
+        digitalWill.depositERC20(address(mockToken), tokenAmount, beneficiary_);
+
+        // Deposit NFT
+        uint256 tokenId = mockNFT.mint(grantor_);
+        mockNFT.approve(address(digitalWill), tokenId);
+        digitalWill.depositERC721(address(mockNFT), tokenId, beneficiary_);
+
+        // Check all assets stored correctly
+        (DigitalWill.AssetType type0,,,,,) = digitalWill.assets(0);
+        (DigitalWill.AssetType type1,,,,,) = digitalWill.assets(1);
+        (DigitalWill.AssetType type2,,,,,) = digitalWill.assets(2);
+
+        assertEq(uint256(type0), uint256(DigitalWill.AssetType.ETH), "Asset 0 should be ETH");
+        assertEq(uint256(type1), uint256(DigitalWill.AssetType.ERC20), "Asset 1 should be ERC20");
+        assertEq(uint256(type2), uint256(DigitalWill.AssetType.ERC721), "Asset 2 should be ERC721");
+
+        // Check beneficiaryAssets has all three
+        assertEq(digitalWill.beneficiaryAssets(beneficiary_, 0), 0, "First asset index");
+        assertEq(digitalWill.beneficiaryAssets(beneficiary_, 1), 1, "Second asset index");
+        assertEq(digitalWill.beneficiaryAssets(beneficiary_, 2), 2, "Third asset index");
 
         vm.stopPrank();
     }
@@ -880,6 +1203,87 @@ contract DigitalWillTest is Test {
         // Verify all tokens deposited
         for (uint256 i = 0; i < numTokens; i++) {
             assertEq(mockNFT.ownerOf(i), address(digitalWill), "Contract should own all NFTs");
+            uint256 assetIndex = digitalWill.beneficiaryAssets(beneficiary_, i);
+            assertEq(assetIndex, i, "Asset indices should match");
+        }
+
+        vm.stopPrank();
+    }
+
+    // Fuzz Tests - depositERC20
+
+    function testFuzzDepositERC20Amount(uint256 amount) public {
+        // Bound amount between 1 and 1 billion tokens (with 18 decimals)
+        amount = bound(amount, 1, 1_000_000_000 * 10 ** 18);
+
+        mockToken.mint(grantor_, amount);
+
+        vm.startPrank(grantor_);
+        mockToken.approve(address(digitalWill), amount);
+
+        digitalWill.depositERC20(address(mockToken), amount, beneficiary_);
+
+        // Verify balance and storage
+        assertEq(mockToken.balanceOf(address(digitalWill)), amount, "Contract balance should match deposit");
+        (,,, uint256 storedAmount,,) = digitalWill.assets(0);
+        assertEq(storedAmount, amount, "Stored amount should match");
+
+        vm.stopPrank();
+    }
+
+    function testFuzzDepositERC20MultipleBeneficiaries(address beneficiary1, address beneficiary2) public {
+        // Ensure addresses are valid and different
+        vm.assume(beneficiary1 != address(0));
+        vm.assume(beneficiary2 != address(0));
+        vm.assume(beneficiary1 != beneficiary2);
+
+        uint256 amount1 = 1000 * 10 ** 18;
+        uint256 amount2 = 2000 * 10 ** 18;
+
+        mockToken.mint(grantor_, amount1 + amount2);
+
+        vm.startPrank(grantor_);
+
+        // Deposit to first beneficiary
+        mockToken.approve(address(digitalWill), amount1);
+        digitalWill.depositERC20(address(mockToken), amount1, beneficiary1);
+
+        // Deposit to second beneficiary
+        mockToken.approve(address(digitalWill), amount2);
+        digitalWill.depositERC20(address(mockToken), amount2, beneficiary2);
+
+        // Verify storage
+        (,,,, address stored1,) = digitalWill.assets(0);
+        (,,,, address stored2,) = digitalWill.assets(1);
+
+        assertEq(stored1, beneficiary1, "First beneficiary should match");
+        assertEq(stored2, beneficiary2, "Second beneficiary should match");
+
+        vm.stopPrank();
+    }
+
+    function testFuzzDepositERC20MultipleDeposits(uint8 numDeposits) public {
+        // Bound to reasonable number of deposits (1-20)
+        numDeposits = uint8(bound(numDeposits, 1, 20));
+
+        uint256 depositAmount = 100 * 10 ** 18;
+        uint256 totalAmount = depositAmount * numDeposits;
+
+        mockToken.mint(grantor_, totalAmount);
+
+        vm.startPrank(grantor_);
+
+        for (uint256 i = 0; i < numDeposits; i++) {
+            mockToken.approve(address(digitalWill), depositAmount);
+            digitalWill.depositERC20(address(mockToken), depositAmount, beneficiary_);
+        }
+
+        // Verify all deposits
+        assertEq(mockToken.balanceOf(address(digitalWill)), totalAmount, "Contract should have all deposits");
+
+        for (uint256 i = 0; i < numDeposits; i++) {
+            (,,, uint256 storedAmount,,) = digitalWill.assets(i);
+            assertEq(storedAmount, depositAmount, "Each deposit amount should match");
             uint256 assetIndex = digitalWill.beneficiaryAssets(beneficiary_, i);
             assertEq(assetIndex, i, "Asset indices should match");
         }

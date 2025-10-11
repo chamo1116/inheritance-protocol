@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
@@ -63,6 +64,11 @@ contract DigitalWill is ReentrancyGuard {
         _;
     }
 
+    modifier onlyWhenNotCompleted() {
+        require(state != ContractState.COMPLETED, "Contract already completed");
+        _;
+    }
+
     constructor(uint256 heartbeatInterval_) {
         require(heartbeatInterval_ > 0, "Heartbeat interval must be greater than 0");
         heartbeatInterval = heartbeatInterval_;
@@ -72,6 +78,8 @@ contract DigitalWill is ReentrancyGuard {
 
         emit ContractDeployed(msg.sender);
     }
+
+    // External functions
 
     /**
      * Check-in function to reset the inactivity timer
@@ -115,6 +123,38 @@ contract DigitalWill is ReentrancyGuard {
     receive() external payable {
         // ETH can only be deposited through depositETH function
         revert("Use depositETH function");
+    }
+
+    /**
+     * Deposit ERC20 tokens into the contract
+     */
+    function depositERC20(address tokenAddress_, uint256 amount_, address beneficiary_)
+        external
+        onlyGrantor
+        onlyWhenActive
+    {
+        require(tokenAddress_ != address(0), "Invalid token address");
+        require(amount_ > 0, "Amount must be greater than 0");
+        require(beneficiary_ != address(0), "Invalid beneficiary address");
+
+        IERC20 token = IERC20(tokenAddress_);
+        require(token.transferFrom(msg.sender, address(this), amount_), "Transfer failed");
+
+        uint256 assetIndex = assets.length;
+        assets.push(
+            Asset({
+                assetType: AssetType.ERC20,
+                tokenAddress: tokenAddress_,
+                tokenId: 0,
+                amount: amount_,
+                beneficiary: beneficiary_,
+                claimed: false
+            })
+        );
+
+        beneficiaryAssets[beneficiary_].push(assetIndex);
+
+        emit AssetDeposited(msg.sender, AssetType.ERC20, tokenAddress_, 0, amount_, beneficiary_);
     }
 
     /**

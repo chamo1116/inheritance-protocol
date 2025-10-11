@@ -109,7 +109,9 @@ contract DigitalWill is ReentrancyGuard {
         emit AssetDeposited(msg.sender, AssetType.ETH, address(0), 0, msg.value, beneficiary_);
     }
 
-    // Fallback function to receive ETH
+    /**
+     * Fallback function to receive ETH
+     */
     receive() external payable {
         // ETH can only be deposited through depositETH function
         revert("Use depositETH function");
@@ -145,5 +147,22 @@ contract DigitalWill is ReentrancyGuard {
         beneficiaryAssets[beneficiary_].push(assetIndex);
 
         emit AssetDeposited(msg.sender, AssetType.ERC721, tokenAddress_, tokenId_, 1, beneficiary_);
+    }
+
+    /**
+     * Check if the contract is claimable (heartbeat period expired)
+     */
+    function isClaimable() public view returns (bool) {
+        return state == ContractState.CLAIMABLE
+            || (state == ContractState.ACTIVE && block.timestamp >= lastCheckIn + heartbeatInterval);
+    }
+
+    /**
+     * Update contract state based on heartbeat
+     */
+    function updateState() public {
+        if (state == ContractState.ACTIVE && isClaimable()) {
+            state = ContractState.CLAIMABLE;
+        }
     }
 }

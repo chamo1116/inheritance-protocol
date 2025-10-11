@@ -547,9 +547,242 @@ contract DigitalWillTest is Test {
         vm.stopPrank();
     }
 
-    // Fuzzing
+    // isClaimable Tests
 
-    // checkIn
+    function testIsClaimableReturnsTrueWhenStateIsClaimable() public {
+        // Set state to CLAIMABLE
+        vm.store(
+            address(digitalWill),
+            bytes32(uint256(2)), // slot 2 for state
+            bytes32(uint256(1)) // ContractState.CLAIMABLE
+        );
+
+        bool result = digitalWill.isClaimable();
+        assertTrue(result, "Should return true when state is CLAIMABLE");
+    }
+
+    function testIsClaimableReturnsFalseWhenActiveAndHeartbeatNotExpired() public view {
+        // State is ACTIVE (default), and we're still within heartbeat interval
+        bool result = digitalWill.isClaimable();
+        assertFalse(result, "Should return false when ACTIVE and heartbeat not expired");
+    }
+
+    function testIsClaimableReturnsTrueWhenActiveAndHeartbeatExpired() public {
+        // State is ACTIVE, advance time beyond heartbeat interval
+        vm.warp(block.timestamp + 30 days + 1 seconds);
+
+        bool result = digitalWill.isClaimable();
+        assertTrue(result, "Should return true when ACTIVE and heartbeat expired");
+    }
+
+    function testIsClaimableAtExactHeartbeatBoundary() public {
+        // Test at exact boundary (lastCheckIn + heartbeatInterval)
+        vm.warp(block.timestamp + 30 days);
+
+        bool result = digitalWill.isClaimable();
+        assertTrue(result, "Should return true at exact heartbeat boundary");
+    }
+
+    function testIsClaimableReturnsFalseWhenCompleted() public {
+        // Set state to COMPLETED
+        vm.store(
+            address(digitalWill),
+            bytes32(uint256(2)), // slot 2 for state
+            bytes32(uint256(2)) // ContractState.COMPLETED
+        );
+
+        bool result = digitalWill.isClaimable();
+        assertFalse(result, "Should return false when state is COMPLETED");
+    }
+
+    function testIsClaimableAfterCheckIn() public {
+        // First check that it's not claimable
+        assertFalse(digitalWill.isClaimable(), "Should not be claimable initially");
+
+        // Warp time to make it claimable
+        vm.warp(block.timestamp + 30 days + 1 seconds);
+        assertTrue(digitalWill.isClaimable(), "Should be claimable after heartbeat expired");
+
+        // Check in to reset timer
+        vm.prank(grantor_);
+        digitalWill.checkIn();
+
+        // Should no longer be claimable
+        assertFalse(digitalWill.isClaimable(), "Should not be claimable after check-in");
+    }
+
+    function testIsClaimableJustBeforeHeartbeatExpires() public {
+        // Advance time to 1 second before expiration
+        vm.warp(block.timestamp + 30 days - 1 seconds);
+
+        bool result = digitalWill.isClaimable();
+        assertFalse(result, "Should return false just before heartbeat expires");
+    }
+
+    // updateState Tests
+
+    function testUpdateStateChangesActiveToClaimableWhenHeartbeatExpired() public {
+        // Verify initial state is ACTIVE
+        assertEq(
+            uint256(digitalWill.state()), uint256(DigitalWill.ContractState.ACTIVE), "Initial state should be ACTIVE"
+        );
+
+        // Advance time beyond heartbeat interval
+        vm.warp(block.timestamp + 30 days + 1 seconds);
+
+        // Call updateState
+        digitalWill.updateState();
+
+        // Verify state changed to CLAIMABLE
+        assertEq(
+            uint256(digitalWill.state()),
+            uint256(DigitalWill.ContractState.CLAIMABLE),
+            "State should be CLAIMABLE after update"
+        );
+    }
+
+    function testUpdateStateDoesNotChangeStateWhenHeartbeatNotExpired() public {
+        // Verify initial state is ACTIVE
+        assertEq(
+            uint256(digitalWill.state()), uint256(DigitalWill.ContractState.ACTIVE), "Initial state should be ACTIVE"
+        );
+
+        // Call updateState (heartbeat not expired)
+        digitalWill.updateState();
+
+        // Verify state remains ACTIVE
+        assertEq(uint256(digitalWill.state()), uint256(DigitalWill.ContractState.ACTIVE), "State should remain ACTIVE");
+    }
+
+    function testUpdateStateDoesNotChangeWhenAlreadyClaimable() public {
+        // Advance time beyond heartbeat interval
+        vm.warp(block.timestamp + 30 days + 1 seconds);
+
+        // First call to updateState
+        digitalWill.updateState();
+        assertEq(
+            uint256(digitalWill.state()), uint256(DigitalWill.ContractState.CLAIMABLE), "State should be CLAIMABLE"
+        );
+
+        // Second call to updateState
+        digitalWill.updateState();
+
+        // Verify state remains CLAIMABLE
+        assertEq(
+            uint256(digitalWill.state()), uint256(DigitalWill.ContractState.CLAIMABLE), "State should remain CLAIMABLE"
+        );
+    }
+
+    function testUpdateStateDoesNotChangeWhenCompleted() public {
+        // Set state to COMPLETED
+        vm.store(
+            address(digitalWill),
+            bytes32(uint256(2)), // slot 2 for state
+            bytes32(uint256(2)) // ContractState.COMPLETED
+        );
+
+        // Advance time beyond heartbeat interval
+        vm.warp(block.timestamp + 30 days + 1 seconds);
+
+        // Call updateState
+        digitalWill.updateState();
+
+        // Verify state remains COMPLETED
+        assertEq(
+            uint256(digitalWill.state()), uint256(DigitalWill.ContractState.COMPLETED), "State should remain COMPLETED"
+        );
+    }
+
+    function testUpdateStateCanBeCalledByAnyone() public {
+        // Advance time beyond heartbeat interval
+        vm.warp(block.timestamp + 30 days + 1 seconds);
+
+        // Call updateState as random user
+        vm.prank(randomUser_);
+        digitalWill.updateState();
+
+        // Verify state changed to CLAIMABLE
+        assertEq(
+            uint256(digitalWill.state()), uint256(DigitalWill.ContractState.CLAIMABLE), "State should be CLAIMABLE"
+        );
+    }
+
+    function testUpdateStateAtExactHeartbeatBoundary() public {
+        // Advance time to exactly heartbeatInterval
+        vm.warp(block.timestamp + 30 days);
+
+        // Call updateState
+        digitalWill.updateState();
+
+        // Verify state changed to CLAIMABLE
+        assertEq(
+            uint256(digitalWill.state()),
+            uint256(DigitalWill.ContractState.CLAIMABLE),
+            "State should be CLAIMABLE at exact boundary"
+        );
+    }
+
+    function testUpdateStateMultipleCallsAfterExpiration() public {
+        // Advance time beyond heartbeat interval
+        vm.warp(block.timestamp + 30 days + 1 seconds);
+
+        // First call
+        digitalWill.updateState();
+        assertEq(
+            uint256(digitalWill.state()),
+            uint256(DigitalWill.ContractState.CLAIMABLE),
+            "State should be CLAIMABLE after first call"
+        );
+
+        // Advance time further
+        vm.warp(block.timestamp + 10 days);
+
+        // Second call
+        digitalWill.updateState();
+        assertEq(
+            uint256(digitalWill.state()),
+            uint256(DigitalWill.ContractState.CLAIMABLE),
+            "State should remain CLAIMABLE after second call"
+        );
+    }
+
+    function testUpdateStateAfterMultipleCheckIns() public {
+        // First check-in at deployment
+        assertEq(uint256(digitalWill.state()), uint256(DigitalWill.ContractState.ACTIVE), "Should start ACTIVE");
+
+        // Advance time but not beyond heartbeat
+        vm.warp(block.timestamp + 15 days);
+
+        // Check in again
+        vm.prank(grantor_);
+        digitalWill.checkIn();
+
+        // Update state should not change anything
+        digitalWill.updateState();
+        assertEq(
+            uint256(digitalWill.state()),
+            uint256(DigitalWill.ContractState.ACTIVE),
+            "Should remain ACTIVE after check-in"
+        );
+
+        // Now advance beyond new heartbeat interval
+        vm.warp(block.timestamp + 30 days + 1 seconds);
+
+        // Update state should now change to CLAIMABLE
+        digitalWill.updateState();
+        assertEq(
+            uint256(digitalWill.state()),
+            uint256(DigitalWill.ContractState.CLAIMABLE),
+            "Should be CLAIMABLE after expiration"
+        );
+    }
+
+    // ===========================================
+    // FUZZ TESTS
+    // ===========================================
+
+    // Fuzz Tests - checkIn
+
     function testFuzzCheckInUpdatesTimestamp(uint256 timeWarp) public {
         // Bound the time warp to reasonable values (0 to 365 days)
         timeWarp = bound(timeWarp, 0, 365 days);
@@ -563,7 +796,8 @@ contract DigitalWillTest is Test {
         assertEq(digitalWill.lastCheckIn(), block.timestamp, "lastCheckIn should match current timestamp");
     }
 
-    // depositETH
+    // Fuzz Tests - depositETH
+
     function testFuzzDepositETHAmount(uint256 amount) public {
         // Bound amount between 0.001 ether and 1000 ether
         amount = bound(amount, 0.001 ether, 1000 ether);
@@ -581,7 +815,8 @@ contract DigitalWillTest is Test {
         vm.stopPrank();
     }
 
-    // depositERC721
+    // Fuzz Tests - depositERC721
+
     function testFuzzDepositERC721TokenId(uint256 tokenId) public {
         // Bound token ID to reasonable range
         tokenId = bound(tokenId, 0, type(uint128).max);
@@ -650,5 +885,37 @@ contract DigitalWillTest is Test {
         }
 
         vm.stopPrank();
+    }
+
+    // Fuzz Tests - isClaimable and updateState
+
+    function testFuzzIsClaimableWithVariousTimeOffsets(uint256 timeOffset) public {
+        // Bound time offset to reasonable range (0 to 365 days)
+        timeOffset = bound(timeOffset, 0, 365 days);
+
+        vm.warp(block.timestamp + timeOffset);
+
+        bool expectedResult = timeOffset >= 30 days;
+        bool actualResult = digitalWill.isClaimable();
+
+        assertEq(actualResult, expectedResult, "isClaimable result should match expected based on time offset");
+    }
+
+    function testFuzzUpdateStateWithVariousTimeOffsets(uint256 timeOffset) public {
+        // Bound time offset to reasonable range (0 to 365 days)
+        timeOffset = bound(timeOffset, 0, 365 days);
+
+        vm.warp(block.timestamp + timeOffset);
+
+        // Call updateState
+        digitalWill.updateState();
+
+        // Expected state
+        DigitalWill.ContractState expectedState =
+            timeOffset >= 30 days ? DigitalWill.ContractState.CLAIMABLE : DigitalWill.ContractState.ACTIVE;
+
+        assertEq(
+            uint256(digitalWill.state()), uint256(expectedState), "State should match expected based on time offset"
+        );
     }
 }

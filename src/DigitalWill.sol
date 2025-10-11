@@ -66,6 +66,8 @@ contract DigitalWill is ReentrancyGuard {
 
     event ContractCompleted(address indexed grantor);
 
+    event HeartbeatExtended(address indexed grantor, uint256 newInterval);
+
     // Modifiers
     modifier onlyGrantor() {
         require(msg.sender == grantor, "You are not the grantor");
@@ -234,6 +236,15 @@ contract DigitalWill is ReentrancyGuard {
 
         _transferAsset(_assetIndex);
         _checkCompletion();
+    }
+
+    /**
+     * Extend the heartbeat interval (only grantor) and most be longer than initial
+     */
+    function extendHeartbeat(uint256 newInterval) external onlyGrantor onlyWhenActive {
+        require(newInterval > heartbeatInterval, "New interval must be longer");
+        heartbeatInterval = newInterval;
+        emit HeartbeatExtended(grantor, newInterval);
     }
 
     // Internal functions

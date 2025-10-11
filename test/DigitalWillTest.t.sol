@@ -53,6 +53,19 @@ contract DigitalWillTest is Test {
         address beneficiary
     );
 
+    event HeartbeatExtended(address indexed grantor, uint256 newInterval);
+
+    event AssetClaimed(
+        address indexed beneficiary,
+        uint256 assetIndex,
+        DigitalWill.AssetType assetType,
+        address tokenAddress,
+        uint256 tokenId,
+        uint256 amount
+    );
+
+    event ContractCompleted(address indexed grantor);
+
     function setUp() public {
         _grantor = makeAddr("grantor");
         _beneficiary = makeAddr("beneficiary");
@@ -872,18 +885,6 @@ contract DigitalWillTest is Test {
 
     // claimSpecificAsset Tests
 
-    // Event for testing claims
-    event AssetClaimed(
-        address indexed beneficiary,
-        uint256 assetIndex,
-        DigitalWill.AssetType assetType,
-        address tokenAddress,
-        uint256 tokenId,
-        uint256 amount
-    );
-
-    event ContractCompleted(address indexed grantor);
-
     // Helper function to setup claimable state
     function _setupClaimableState() internal {
         // Warp time to make contract claimable
@@ -1661,6 +1662,226 @@ contract DigitalWillTest is Test {
         );
     }
 
+    // extendHeartbeat Tests
+
+    function testExtendHeartbeatRevertsWhenNotGrantor() public {
+        uint256 newInterval = 60 days;
+
+        vm.prank(_randomUser);
+        vm.expectRevert("You are not the grantor");
+        digitalWill.extendHeartbeat(newInterval);
+    }
+
+    function testExtendHeartbeatRevertsWhenNotActive() public {
+        uint256 newInterval = 60 days;
+
+        // Set contract state to CLAIMABLE
+        vm.store(
+            address(digitalWill),
+            bytes32(uint256(2)), // slot 2 for state
+            bytes32(uint256(1)) // ContractState.CLAIMABLE
+        );
+
+        vm.prank(_grantor);
+        vm.expectRevert("Contract must be active");
+        digitalWill.extendHeartbeat(newInterval);
+    }
+
+    function testExtendHeartbeatRevertsWhenCompleted() public {
+        uint256 newInterval = 60 days;
+
+        // Set contract state to COMPLETED
+        vm.store(
+            address(digitalWill),
+            bytes32(uint256(2)), // slot 2 for state
+            bytes32(uint256(2)) // ContractState.COMPLETED
+        );
+
+        vm.prank(_grantor);
+        vm.expectRevert("Contract must be active");
+        digitalWill.extendHeartbeat(newInterval);
+    }
+
+    function testExtendHeartbeatRevertsWhenNewIntervalNotLonger() public {
+        uint256 shorterInterval = 15 days;
+
+        vm.prank(_grantor);
+        vm.expectRevert("New interval must be longer");
+        digitalWill.extendHeartbeat(shorterInterval);
+    }
+
+    function testExtendHeartbeatRevertsWhenNewIntervalEquals() public {
+        uint256 sameInterval = 30 days; // Same as initial
+
+        vm.prank(_grantor);
+        vm.expectRevert("New interval must be longer");
+        digitalWill.extendHeartbeat(sameInterval);
+    }
+
+    function testExtendHeartbeatSuccessfully() public {
+        uint256 newInterval = 60 days;
+        uint256 initialInterval = digitalWill.heartbeatInterval();
+
+        vm.prank(_grantor);
+        digitalWill.extendHeartbeat(newInterval);
+
+        assertEq(digitalWill.heartbeatInterval(), newInterval, "Heartbeat interval should be updated");
+        assertGt(digitalWill.heartbeatInterval(), initialInterval, "New interval should be longer than initial");
+    }
+
+    function testExtendHeartbeatEmitsEvent() public {
+        uint256 newInterval = 60 days;
+
+        vm.expectEmit(true, true, true, true);
+        emit HeartbeatExtended(_grantor, newInterval);
+
+        vm.prank(_grantor);
+        digitalWill.extendHeartbeat(newInterval);
+    }
+
+    function testExtendHeartbeatMultipleTimes() public {
+        uint256 firstExtension = 60 days;
+        uint256 secondExtension = 90 days;
+        uint256 thirdExtension = 120 days;
+
+        vm.startPrank(_grantor);
+
+        // First extension
+        digitalWill.extendHeartbeat(firstExtension);
+        assertEq(digitalWill.heartbeatInterval(), firstExtension, "First extension should be set");
+
+        // Second extension
+        digitalWill.extendHeartbeat(secondExtension);
+        assertEq(digitalWill.heartbeatInterval(), secondExtension, "Second extension should be set");
+
+        // Third extension
+        digitalWill.extendHeartbeat(thirdExtension);
+        assertEq(digitalWill.heartbeatInterval(), thirdExtension, "Third extension should be set");
+
+        vm.stopPrank();
+    }
+
+    function testExtendHeartbeatDoesNotChangeLastCheckIn() public {
+        uint256 newInterval = 60 days;
+        uint256 lastCheckInBefore = digitalWill.lastCheckIn();
+
+        vm.prank(_grantor);
+        digitalWill.extendHeartbeat(newInterval);
+
+        uint256 lastCheckInAfter = digitalWill.lastCheckIn();
+        assertEq(lastCheckInAfter, lastCheckInBefore, "lastCheckIn should not change when extending heartbeat");
+    }
+
+    function testExtendHeartbeatDoesNotChangeState() public {
+        uint256 newInterval = 60 days;
+
+        // Verify initial state is ACTIVE
+        assertEq(
+            uint256(digitalWill.state()), uint256(DigitalWill.ContractState.ACTIVE), "Initial state should be ACTIVE"
+        );
+
+        vm.prank(_grantor);
+        digitalWill.extendHeartbeat(newInterval);
+
+        // Verify state is still ACTIVE
+        assertEq(uint256(digitalWill.state()), uint256(DigitalWill.ContractState.ACTIVE), "State should remain ACTIVE");
+    }
+
+    function testExtendHeartbeatAndVerifyNewIntervalUsed() public {
+        uint256 newInterval = 60 days;
+
+        vm.prank(_grantor);
+        digitalWill.extendHeartbeat(newInterval);
+
+        // Warp time to just before new interval expires
+        vm.warp(block.timestamp + newInterval - 1 seconds);
+
+        // Should not be claimable yet
+        assertFalse(digitalWill.isClaimable(), "Should not be claimable before new interval expires");
+
+        // Warp to exactly new interval
+        vm.warp(block.timestamp + 1 seconds);
+
+        // Should now be claimable
+        assertTrue(digitalWill.isClaimable(), "Should be claimable after new interval expires");
+    }
+
+    function testExtendHeartbeatAfterPartialInterval() public {
+        uint256 newInterval = 60 days;
+
+        // Warp halfway through initial interval
+        vm.warp(block.timestamp + 15 days);
+
+        vm.prank(_grantor);
+        digitalWill.extendHeartbeat(newInterval);
+
+        // Warp to original interval (30 days from start)
+        vm.warp(block.timestamp + 15 days);
+
+        // Should not be claimable yet (new interval is 60 days from original checkIn)
+        assertFalse(digitalWill.isClaimable(), "Should not be claimable at old interval");
+
+        // Warp to new interval (60 days from start)
+        vm.warp(block.timestamp + 30 days);
+
+        // Should now be claimable
+        assertTrue(digitalWill.isClaimable(), "Should be claimable after new interval");
+    }
+
+    function testExtendHeartbeatWithCheckInBetween() public {
+        uint256 newInterval = 60 days;
+
+        // First check in (implicit at deployment)
+        uint256 firstCheckIn = digitalWill.lastCheckIn();
+
+        // Warp some time
+        vm.warp(block.timestamp + 10 days);
+
+        // Check in again
+        vm.prank(_grantor);
+        digitalWill.checkIn();
+        uint256 secondCheckIn = digitalWill.lastCheckIn();
+
+        assertGt(secondCheckIn, firstCheckIn, "Second check-in should be later");
+
+        // Extend heartbeat
+        vm.prank(_grantor);
+        digitalWill.extendHeartbeat(newInterval);
+
+        // Verify new interval applies from last check-in
+        vm.warp(secondCheckIn + newInterval);
+        assertTrue(digitalWill.isClaimable(), "Should be claimable after new interval from last check-in");
+    }
+
+    function testExtendHeartbeatRevertsAfterHeartbeatExpires() public {
+        uint256 newInterval = 60 days;
+
+        // Warp time beyond initial heartbeat interval
+        vm.warp(block.timestamp + 30 days + 1 seconds);
+
+        // Update state to CLAIMABLE
+        digitalWill.updateState();
+
+        // Verify state is CLAIMABLE
+        assertEq(
+            uint256(digitalWill.state()), uint256(DigitalWill.ContractState.CLAIMABLE), "State should be CLAIMABLE"
+        );
+
+        // Try to extend heartbeat after it expired
+        vm.prank(_grantor);
+        vm.expectRevert("Contract must be active");
+        digitalWill.extendHeartbeat(newInterval);
+    }
+
+    function testExtendHeartbeatWithMaxInterval() public {
+        uint256 maxInterval = 365 days * 10; // 10 years
+
+        vm.prank(_grantor);
+        digitalWill.extendHeartbeat(maxInterval);
+
+        assertEq(digitalWill.heartbeatInterval(), maxInterval, "Should be able to set very long interval");
+    }
+
     // ===========================================
     // FUZZ TESTS
     // ===========================================
@@ -1965,5 +2186,125 @@ contract DigitalWillTest is Test {
 
         // Verify
         assertEq(mockToken.balanceOf(_beneficiary), amount, "Beneficiary should receive correct amount");
+    }
+
+    // ===========================================
+    // FUZZ TESTS - extendHeartbeat
+    // ===========================================
+
+    // Fuzz Test: Extend heartbeat with various valid intervals
+    function testFuzzExtendHeartbeatWithVariousIntervals(uint256 newInterval) public {
+        // Bound to valid range (must be longer than initial 30 days, up to 10 years)
+        newInterval = bound(newInterval, 30 days + 1, 365 days * 10);
+
+        vm.prank(_grantor);
+        digitalWill.extendHeartbeat(newInterval);
+
+        assertEq(digitalWill.heartbeatInterval(), newInterval, "Heartbeat interval should be updated");
+        assertGt(digitalWill.heartbeatInterval(), 30 days, "New interval should be longer than initial");
+    }
+
+    // Fuzz Test: Verify extended heartbeat is enforced correctly
+    function testFuzzExtendHeartbeatAndVerifyEnforcement(uint256 newInterval) public {
+        // Bound to reasonable range (31 days to 365 days)
+        newInterval = bound(newInterval, 31 days, 365 days);
+
+        vm.prank(_grantor);
+        digitalWill.extendHeartbeat(newInterval);
+
+        // Warp to just before new interval expires
+        vm.warp(block.timestamp + newInterval - 1 seconds);
+        assertFalse(digitalWill.isClaimable(), "Should not be claimable before new interval expires");
+
+        // Warp to exactly new interval
+        vm.warp(block.timestamp + 1 seconds);
+        assertTrue(digitalWill.isClaimable(), "Should be claimable after new interval expires");
+    }
+
+    // Fuzz Test: Multiple extensions with increasing intervals
+    function testFuzzExtendHeartbeatMultipleExtensions(uint8 numExtensions) public {
+        // Bound to reasonable number of extensions (1-10)
+        numExtensions = uint8(bound(numExtensions, 1, 10));
+
+        uint256 currentInterval = 30 days;
+
+        vm.startPrank(_grantor);
+
+        for (uint256 i = 0; i < numExtensions; i++) {
+            // Each extension adds 30 days more
+            uint256 newInterval = currentInterval + 30 days;
+            digitalWill.extendHeartbeat(newInterval);
+
+            assertEq(digitalWill.heartbeatInterval(), newInterval, "Interval should be updated");
+            currentInterval = newInterval;
+        }
+
+        vm.stopPrank();
+
+        // Final interval should be initial + (numExtensions * 30 days)
+        uint256 expectedFinalInterval = 30 days + (uint256(numExtensions) * 30 days);
+        assertEq(digitalWill.heartbeatInterval(), expectedFinalInterval, "Final interval should match expected");
+    }
+
+    // Fuzz Test: Extend heartbeat at various times during initial interval
+    function testFuzzExtendHeartbeatAtVariousTimes(uint256 timeOffset) public {
+        // Bound to time within initial interval (0 to 29 days)
+        timeOffset = bound(timeOffset, 0, 29 days);
+
+        uint256 newInterval = 60 days;
+
+        // Warp to some point during initial interval
+        vm.warp(block.timestamp + timeOffset);
+
+        vm.prank(_grantor);
+        digitalWill.extendHeartbeat(newInterval);
+
+        // Verify interval is updated
+        assertEq(digitalWill.heartbeatInterval(), newInterval, "Heartbeat interval should be updated");
+
+        // Verify lastCheckIn remains unchanged
+        assertEq(digitalWill.lastCheckIn(), block.timestamp - timeOffset, "lastCheckIn should not change");
+    }
+
+    // Fuzz Test: Verify invalid intervals revert
+    function testFuzzExtendHeartbeatRevertsWithInvalidIntervals(uint256 invalidInterval) public {
+        // Bound to invalid range (0 to 30 days, which is not longer than initial)
+        invalidInterval = bound(invalidInterval, 0, 30 days);
+
+        vm.prank(_grantor);
+        vm.expectRevert("New interval must be longer");
+        digitalWill.extendHeartbeat(invalidInterval);
+    }
+
+    // Fuzz Test: Extend heartbeat with check-ins at various times
+    function testFuzzExtendHeartbeatWithCheckIns(uint256 checkInTime, uint256 extensionTime) public {
+        // Bound check-in time to within initial interval
+        checkInTime = bound(checkInTime, 1 days, 29 days);
+        // Bound extension time to after check-in
+        extensionTime = bound(extensionTime, checkInTime + 1 days, checkInTime + 10 days);
+
+        uint256 newInterval = 60 days;
+
+        // Warp to check-in time
+        vm.warp(block.timestamp + checkInTime);
+
+        // Check in
+        vm.prank(_grantor);
+        digitalWill.checkIn();
+        uint256 lastCheckInTime = digitalWill.lastCheckIn();
+
+        // Warp to extension time
+        vm.warp(block.timestamp + (extensionTime - checkInTime));
+
+        // Extend heartbeat
+        vm.prank(_grantor);
+        digitalWill.extendHeartbeat(newInterval);
+
+        // Verify new interval applies from last check-in
+        assertEq(digitalWill.heartbeatInterval(), newInterval, "Interval should be updated");
+
+        // Warp to new interval from last check-in
+        vm.warp(lastCheckInTime + newInterval);
+        assertTrue(digitalWill.isClaimable(), "Should be claimable after new interval from last check-in");
     }
 }

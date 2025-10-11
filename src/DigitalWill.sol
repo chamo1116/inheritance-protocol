@@ -2,8 +2,9 @@
 pragma solidity 0.8.24;
 
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-contract DigitalWill {
+contract DigitalWill is ReentrancyGuard {
     // Contract state
     enum ContractState {
         ACTIVE,
@@ -30,9 +31,10 @@ contract DigitalWill {
     }
 
     // Contract metadata
-    address public grantor;
+    address public immutable grantor;
     uint256 public lastCheckIn;
     ContractState public state;
+    uint256 public heartbeatInterval;
 
     // Assets management
     Asset[] public assets;
@@ -61,7 +63,9 @@ contract DigitalWill {
         _;
     }
 
-    constructor() {
+    constructor(uint256 heartbeatInterval_) {
+        require(heartbeatInterval_ > 0, "Heartbeat interval must be greater than 0");
+        heartbeatInterval = heartbeatInterval_;
         grantor = msg.sender;
         state = ContractState.ACTIVE;
         lastCheckIn = block.timestamp;

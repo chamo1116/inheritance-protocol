@@ -50,9 +50,9 @@ contract DigitalWillTest is Test {
         // Deploy mock NFT contract
         mockNFT = new MockERC721("MockNFT", "MNFT");
 
-        // Deploy contract as grantor
+        // Deploy contract as grantor with 30 days heartbeat interval
         vm.prank(grantor_);
-        digitalWill = new DigitalWill();
+        digitalWill = new DigitalWill(30 days);
     }
 
     // Deploy contract
@@ -60,6 +60,12 @@ contract DigitalWillTest is Test {
         assertEq(digitalWill.grantor(), grantor_, "Grantor should be set correctly");
         assertEq(digitalWill.lastCheckIn(), block.timestamp, "Last check-in should be set correctly");
         assertEq(uint256(digitalWill.state()), uint256(DigitalWill.ContractState.ACTIVE));
+    }
+
+    function testDeployContractRevertsWithZeroHeartbeatInterval() public {
+        vm.prank(grantor_);
+        vm.expectRevert("Heartbeat interval must be greater than 0");
+        new DigitalWill(0);
     }
 
     // Check in
@@ -76,10 +82,11 @@ contract DigitalWillTest is Test {
         // we'll need to manually set it using vm.store for testing purposes
 
         // Arrange - Set contract state to CLAIMABLE (1)
-        // The state variable is at slot 2 (grantor=0, lastCheckIn=1, state=2)
+        // The state variable is at slot 1 (lastCheckIn=0, state=1, heartbeatInterval=2)
+        // Note: grantor is immutable so not in storage
         vm.store(
             address(digitalWill),
-            bytes32(uint256(2)), // slot 2 for state
+            bytes32(uint256(1)), // slot 1 for state
             bytes32(uint256(1)) // ContractState.CLAIMABLE
         );
 
@@ -156,7 +163,7 @@ contract DigitalWillTest is Test {
         // Set contract state to CLAIMABLE (1)
         vm.store(
             address(digitalWill),
-            bytes32(uint256(2)), // slot 2 for state
+            bytes32(uint256(1)), // slot 1 for state
             bytes32(uint256(1)) // ContractState.CLAIMABLE
         );
 
@@ -319,7 +326,7 @@ contract DigitalWillTest is Test {
 
         vm.store(
             address(digitalWill),
-            bytes32(uint256(2)), // slot 2 for state
+            bytes32(uint256(1)), // slot 1 for state
             bytes32(uint256(1)) // ContractState.CLAIMABLE
         );
 

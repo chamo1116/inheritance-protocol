@@ -3,10 +3,14 @@ pragma solidity 0.8.24;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-contract DigitalWill is ReentrancyGuard {
+contract DigitalWill is ReentrancyGuard, IERC721Receiver {
+    using SafeERC20 for IERC20;
     // Contract state
+
     enum ContractState {
         ACTIVE,
         CLAIMABLE,
@@ -112,6 +116,10 @@ contract DigitalWill is ReentrancyGuard {
         }
     }
 
+    function onERC721Received(address, address, uint256, bytes memory) public virtual override returns (bytes4) {
+        return this.onERC721Received.selector;
+    }
+
     // External functions
 
     /**
@@ -171,7 +179,7 @@ contract DigitalWill is ReentrancyGuard {
         require(_beneficiary != address(0), "Invalid beneficiary address");
 
         IERC20 token = IERC20(_tokenAddress);
-        require(token.transferFrom(msg.sender, address(this), _amount), "Transfer failed");
+        token.safeTransferFrom(msg.sender, address(this), _amount);
 
         uint256 assetIndex = assets.length;
         assets.push(
@@ -270,10 +278,11 @@ contract DigitalWill is ReentrancyGuard {
 
         if (asset.assetType == AssetType.ETH) {
             // Transfer ETH
-            payable(asset.beneficiary).transfer(asset.amount);
+            (bool success,) = payable(asset.beneficiary).call{value: asset.amount}("");
+            require(success, "ETH transfer failed");
         } else if (asset.assetType == AssetType.ERC20) {
             // Transfer ERC20
-            IERC20(asset.tokenAddress).transfer(asset.beneficiary, asset.amount);
+            IERC20(asset.tokenAddress).safeTransfer(asset.beneficiary, asset.amount);
         } else if (asset.assetType == AssetType.ERC721) {
             // Transfer ERC721
             IERC721(asset.tokenAddress).safeTransferFrom(address(this), asset.beneficiary, asset.tokenId);

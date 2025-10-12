@@ -17,16 +17,15 @@ contract DigitalWill is ReentrancyGuard {
     enum AssetType {
         ETH,
         ERC20,
-        ERC721,
-        ERC1155
+        ERC721
     }
 
     // Asset structure
     struct Asset {
         AssetType assetType;
         address tokenAddress;
-        uint256 tokenId; // For ERC721 and ERC1155
-        uint256 amount; // For ERC20 and ERC1155
+        uint256 tokenId; // For ERC721
+        uint256 amount; // For ERC20
         address beneficiary;
         bool claimed;
     }

@@ -2,7 +2,7 @@
 pragma solidity 0.8.24;
 
 import {Test, console} from "forge-std/Test.sol";
-import {DigitalWill} from "../src/DigitalWill.sol";
+import {DigitalWillFactory} from "../src/DigitalWillFactory.sol";
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
@@ -33,8 +33,8 @@ contract MockERC721 is ERC721 {
     }
 }
 
-contract DigitalWillTest is Test {
-    DigitalWill public digitalWill;
+contract DigitalWillFactoryTest is Test {
+    DigitalWillFactory public factory;
     MockERC20 public mockToken;
     MockERC721 public mockNFT;
 
@@ -43,28 +43,32 @@ contract DigitalWillTest is Test {
     address public _beneficiary;
 
     // Events to test
-    event CheckIn(uint256 timestamp);
+    event WillCreated(address indexed grantor, uint256 heartbeatInterval);
+
+    event CheckIn(address indexed grantor, uint256 timestamp);
+
     event AssetDeposited(
         address indexed grantor,
-        DigitalWill.AssetType assetType,
+        DigitalWillFactory.AssetType assetType,
         address tokenAddress,
         uint256 tokenId,
         uint256 amount,
-        address beneficiary
+        address indexed beneficiary
     );
 
     event HeartbeatExtended(address indexed grantor, uint256 newInterval);
 
     event AssetClaimed(
+        address indexed grantor,
         address indexed beneficiary,
         uint256 assetIndex,
-        DigitalWill.AssetType assetType,
+        DigitalWillFactory.AssetType assetType,
         address tokenAddress,
         uint256 tokenId,
         uint256 amount
     );
 
-    event ContractCompleted(address indexed grantor);
+    event WillCompleted(address indexed grantor);
 
     function setUp() public {
         _grantor = makeAddr("grantor");
@@ -75,9 +79,12 @@ contract DigitalWillTest is Test {
         mockToken = new MockERC20("MockToken", "MTK");
         mockNFT = new MockERC721("MockNFT", "MNFT");
 
-        // Deploy contract as grantor with 30 days heartbeat interval
+        // Deploy factory
+        factory = new DigitalWillFactory();
+
+        // Create will for grantor with 30 days heartbeat interval
         vm.prank(_grantor);
-        digitalWill = new DigitalWill(30 days);
+        factory.createWill(30 days);
     }
 
     // Helper function to setup claimable state
@@ -86,78 +93,95 @@ contract DigitalWillTest is Test {
         vm.warp(block.timestamp + 30 days + 1 seconds);
     }
 
-    // Deploy contract
-    function testDeployContract() public view {
-        assertEq(digitalWill.grantor(), _grantor, "Grantor should be set correctly");
-        assertEq(digitalWill.lastCheckIn(), block.timestamp, "Last check-in should be set correctly");
-        assertEq(uint256(digitalWill.state()), uint256(DigitalWill.ContractState.ACTIVE));
+    // Create will tests
+    function testCreateWill() public {
+        address newGrantor = makeAddr("newGrantor");
+        vm.prank(newGrantor);
+        factory.createWill(30 days);
+
+        (uint256 lastCheckIn, uint256 heartbeatInterval, DigitalWillFactory.ContractState state, uint256 assetCount) =
+            factory.getWillInfo(newGrantor);
+
+        assertEq(lastCheckIn, block.timestamp, "Last check-in should be set correctly");
+        assertEq(heartbeatInterval, 30 days, "Heartbeat interval should be set correctly");
+        assertEq(uint256(state), uint256(DigitalWillFactory.ContractState.ACTIVE), "State should be ACTIVE");
+        assertEq(assetCount, 0, "Asset count should be 0");
     }
 
-    function testDeployContractRevertsWithZeroHeartbeatInterval() public {
-        vm.prank(_grantor);
+    function testCreateWillRevertsWithZeroHeartbeatInterval() public {
+        address newGrantor = makeAddr("newGrantor");
+        vm.prank(newGrantor);
         vm.expectRevert("Heartbeat interval must be greater than 0");
-        new DigitalWill(0);
+        factory.createWill(0);
+    }
+
+    function testCreateWillRevertsIfWillAlreadyExists() public {
+        vm.prank(_grantor);
+        vm.expectRevert("Will already exists");
+        factory.createWill(30 days);
+    }
+
+    function testCreateWillEmitsEvent() public {
+        address newGrantor = makeAddr("newGrantor");
+
+        vm.expectEmit(true, true, true, true);
+        emit WillCreated(newGrantor, 30 days);
+
+        vm.prank(newGrantor);
+        factory.createWill(30 days);
     }
 
     // Check in
 
     function testCheckInWithNotGrantor() public {
         vm.prank(_randomUser);
-        vm.expectRevert("You are not the grantor");
-        digitalWill.checkIn();
+        vm.expectRevert("Will does not exist");
+        factory.checkIn();
     }
 
     function testCheckInRevertsWhenNotActive() public {
-        // Note: This test assumes there will be a way to change the contract state
-        // Since the current contract doesn't have methods to change state,
-        // we'll need to manually set it using vm.store for testing purposes
+        // Make the will claimable by warping time
+        vm.warp(block.timestamp + 30 days + 1 seconds);
+        factory.updateState(_grantor);
 
-        // Arrange - Set contract state to CLAIMABLE (1)
-        // Storage: slot 0=ReentrancyGuard, slot 1=lastCheckIn, slot 2=state, slot 3=heartbeatInterval
-        // Note: grantor is immutable so not in storage
-        vm.store(
-            address(digitalWill),
-            bytes32(uint256(2)), // slot 2 for state
-            bytes32(uint256(1)) // ContractState.CLAIMABLE
-        );
-
-        vm.expectRevert("Contract must be active");
+        vm.expectRevert("Will must be active");
         vm.prank(_grantor);
-        digitalWill.checkIn();
+        factory.checkIn();
     }
 
     function testCheckInSuccessfully() public {
         uint256 checkInTime = block.timestamp;
 
         vm.prank(_grantor);
-        digitalWill.checkIn();
+        factory.checkIn();
 
-        assertEq(digitalWill.lastCheckIn(), checkInTime, "lastCheckIn should be updated to current timestamp");
+        (uint256 lastCheckIn,,,) = factory.getWillInfo(_grantor);
+        assertEq(lastCheckIn, checkInTime, "lastCheckIn should be updated to current timestamp");
     }
 
     function testCheckInEmitsEvent() public {
         uint256 expectedTimestamp = block.timestamp;
 
         vm.expectEmit(true, true, true, true);
-        emit CheckIn(expectedTimestamp);
+        emit CheckIn(_grantor, expectedTimestamp);
 
         vm.prank(_grantor);
-        digitalWill.checkIn();
+        factory.checkIn();
     }
 
     function testCheckInMultipleCheckIns() public {
         // First check-in
         vm.prank(_grantor);
-        digitalWill.checkIn();
-        uint256 firstCheckIn = digitalWill.lastCheckIn();
+        factory.checkIn();
+        (uint256 firstCheckIn,,,) = factory.getWillInfo(_grantor);
 
         // Advance time by 1 day
         vm.warp(block.timestamp + 1 days);
 
         // Second check-in
         vm.prank(_grantor);
-        digitalWill.checkIn();
-        uint256 secondCheckIn = digitalWill.lastCheckIn();
+        factory.checkIn();
+        (uint256 secondCheckIn,,,) = factory.getWillInfo(_grantor);
 
         assertGt(secondCheckIn, firstCheckIn, "Second check-in should have later timestamp");
         assertEq(secondCheckIn, block.timestamp, "Second check-in should match current block timestamp");
@@ -167,15 +191,15 @@ contract DigitalWillTest is Test {
     function testDepositETHRevertsWhenNotGrantor() public {
         vm.startPrank(_randomUser);
         vm.deal(_randomUser, 10 ether);
-        vm.expectRevert("You are not the grantor");
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        vm.expectRevert("Will does not exist");
+        factory.depositETH{value: 1 ether}(_beneficiary);
         vm.stopPrank();
     }
 
     function testDepositETHRevertsWithZeroValue() public {
         vm.startPrank(_grantor);
         vm.expectRevert("Must send ETH");
-        digitalWill.depositETH{value: 0}(_beneficiary);
+        factory.depositETH{value: 0}(_beneficiary);
         vm.stopPrank();
     }
 
@@ -184,22 +208,20 @@ contract DigitalWillTest is Test {
         vm.deal(_grantor, 10 ether);
         vm.expectRevert("Invalid beneficiary address");
 
-        digitalWill.depositETH{value: 1 ether}(address(0));
+        factory.depositETH{value: 1 ether}(address(0));
         vm.stopPrank();
     }
 
     function testDepositETHRevertsWhenNotActive() public {
+        // Make the will claimable by warping time
+        vm.warp(block.timestamp + 30 days + 1 seconds);
+        factory.updateState(_grantor);
+
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        // Set contract state to CLAIMABLE (1)
-        vm.store(
-            address(digitalWill),
-            bytes32(uint256(2)), // slot 2 for state
-            bytes32(uint256(1)) // ContractState.CLAIMABLE
-        );
 
-        vm.expectRevert("Contract must be active");
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        vm.expectRevert("Will must be active");
+        factory.depositETH{value: 1 ether}(_beneficiary);
         vm.stopPrank();
     }
 
@@ -208,19 +230,19 @@ contract DigitalWillTest is Test {
         vm.deal(_grantor, 10 ether);
         uint256 depositAmount = 5 ether;
 
-        uint256 initialBalance = address(digitalWill).balance;
+        uint256 initialBalance = address(factory).balance;
 
-        digitalWill.depositETH{value: depositAmount}(_beneficiary);
+        factory.depositETH{value: depositAmount}(_beneficiary);
 
         // Check contract balance updated
         assertEq(
-            address(digitalWill).balance,
+            address(factory).balance,
             initialBalance + depositAmount,
             "Contract balance should increase by deposit amount"
         );
         // Check beneficiaryAssets mapping updated
-        uint256 assetIndex = digitalWill.beneficiaryAssets(_beneficiary, 0);
-        assertEq(assetIndex, 0, "Asset index should be 0 for first asset");
+        uint256[] memory assetIndices = factory.getBeneficiaryAssets(_grantor, _beneficiary);
+        assertEq(assetIndices[0], 0, "Asset index should be 0 for first asset");
         vm.stopPrank();
     }
 
@@ -230,30 +252,31 @@ contract DigitalWillTest is Test {
         vm.deal(_grantor, 10 ether);
 
         // First deposit
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositETH{value: 1 ether}(_beneficiary);
 
         // Second deposit
-        digitalWill.depositETH{value: 2 ether}(_beneficiary);
+        factory.depositETH{value: 2 ether}(_beneficiary);
 
         // Third deposit
-        digitalWill.depositETH{value: 3 ether}(_beneficiary);
+        factory.depositETH{value: 3 ether}(_beneficiary);
 
         // Check contract balance
-        assertEq(address(digitalWill).balance, 6 ether, "Contract should have 6 ETH total");
+        assertEq(address(factory).balance, 6 ether, "Contract should have 6 ETH total");
 
         // Check all three assets stored
-        (,,, uint256 amount1,,) = digitalWill.assets(0);
-        (,,, uint256 amount2,,) = digitalWill.assets(1);
-        (,,, uint256 amount3,,) = digitalWill.assets(2);
+        (,,, uint256 amount1,,) = factory.getAsset(_grantor, 0);
+        (,,, uint256 amount2,,) = factory.getAsset(_grantor, 1);
+        (,,, uint256 amount3,,) = factory.getAsset(_grantor, 2);
 
         assertEq(amount1, 1 ether, "First asset amount should be 1 ETH");
         assertEq(amount2, 2 ether, "Second asset amount should be 2 ETH");
         assertEq(amount3, 3 ether, "Third asset amount should be 3 ETH");
 
         // Check beneficiaryAssets has all three indices
-        assertEq(digitalWill.beneficiaryAssets(_beneficiary, 0), 0, "First asset index");
-        assertEq(digitalWill.beneficiaryAssets(_beneficiary, 1), 1, "Second asset index");
-        assertEq(digitalWill.beneficiaryAssets(_beneficiary, 2), 2, "Third asset index");
+        uint256[] memory assetIndices = factory.getBeneficiaryAssets(_grantor, _beneficiary);
+        assertEq(assetIndices[0], 0, "First asset index");
+        assertEq(assetIndices[1], 1, "Second asset index");
+        assertEq(assetIndices[2], 2, "Third asset index");
         vm.stopPrank();
     }
 
@@ -267,28 +290,32 @@ contract DigitalWillTest is Test {
 
         // Deposit to different beneficiaries
 
-        digitalWill.depositETH{value: 1 ether}(beneficiary1);
+        factory.depositETH{value: 1 ether}(beneficiary1);
 
-        digitalWill.depositETH{value: 2 ether}(beneficiary2);
+        factory.depositETH{value: 2 ether}(beneficiary2);
 
-        digitalWill.depositETH{value: 3 ether}(beneficiary3);
+        factory.depositETH{value: 3 ether}(beneficiary3);
 
         // Check contract balance
-        assertEq(address(digitalWill).balance, 6 ether, "Contract should have 6 ETH total");
+        assertEq(address(factory).balance, 6 ether, "Contract should have 6 ETH total");
 
         // Check each beneficiary has correct asset
-        (,,,, address stored1,) = digitalWill.assets(0);
-        (,,,, address stored2,) = digitalWill.assets(1);
-        (,,,, address stored3,) = digitalWill.assets(2);
+        (,,,, address stored1,) = factory.getAsset(_grantor, 0);
+        (,,,, address stored2,) = factory.getAsset(_grantor, 1);
+        (,,,, address stored3,) = factory.getAsset(_grantor, 2);
 
         assertEq(stored1, beneficiary1, "First beneficiary should match");
         assertEq(stored2, beneficiary2, "Second beneficiary should match");
         assertEq(stored3, beneficiary3, "Third beneficiary should match");
 
         // Check each beneficiary's asset mapping
-        assertEq(digitalWill.beneficiaryAssets(beneficiary1, 0), 0, "Beneficiary1 asset index");
-        assertEq(digitalWill.beneficiaryAssets(beneficiary2, 0), 1, "Beneficiary2 asset index");
-        assertEq(digitalWill.beneficiaryAssets(beneficiary3, 0), 2, "Beneficiary3 asset index");
+        uint256[] memory indices1 = factory.getBeneficiaryAssets(_grantor, beneficiary1);
+        uint256[] memory indices2 = factory.getBeneficiaryAssets(_grantor, beneficiary2);
+        uint256[] memory indices3 = factory.getBeneficiaryAssets(_grantor, beneficiary3);
+
+        assertEq(indices1[0], 0, "Beneficiary1 asset index");
+        assertEq(indices2[0], 1, "Beneficiary2 asset index");
+        assertEq(indices3[0], 2, "Beneficiary3 asset index");
         vm.stopPrank();
     }
 
@@ -297,7 +324,7 @@ contract DigitalWillTest is Test {
         vm.deal(_grantor, 10 ether);
 
         vm.expectRevert("Use depositETH function");
-        (bool success,) = address(digitalWill).call{value: 1 ether}("");
+        (bool success,) = address(factory).call{value: 1 ether}("");
         success; // Silence unused variable warning
 
         vm.stopPrank();
@@ -310,24 +337,24 @@ contract DigitalWillTest is Test {
         mockToken.mint(_randomUser, depositAmount);
 
         vm.startPrank(_randomUser);
-        mockToken.approve(address(digitalWill), depositAmount);
+        mockToken.approve(address(factory), depositAmount);
 
-        vm.expectRevert("You are not the grantor");
-        digitalWill.depositERC20(address(mockToken), depositAmount, _beneficiary);
+        vm.expectRevert("Will does not exist");
+        factory.depositERC20(address(mockToken), depositAmount, _beneficiary);
         vm.stopPrank();
     }
 
     function testDepositERC20RevertsWithInvalidTokenAddress() public {
         vm.startPrank(_grantor);
         vm.expectRevert("Invalid token address");
-        digitalWill.depositERC20(address(0), 1000, _beneficiary);
+        factory.depositERC20(address(0), 1000, _beneficiary);
         vm.stopPrank();
     }
 
     function testDepositERC20RevertsWithZeroAmount() public {
         vm.startPrank(_grantor);
         vm.expectRevert("Amount must be greater than 0");
-        digitalWill.depositERC20(address(mockToken), 0, _beneficiary);
+        factory.depositERC20(address(mockToken), 0, _beneficiary);
         vm.stopPrank();
     }
 
@@ -336,29 +363,26 @@ contract DigitalWillTest is Test {
         mockToken.mint(_grantor, depositAmount);
 
         vm.startPrank(_grantor);
-        mockToken.approve(address(digitalWill), depositAmount);
+        mockToken.approve(address(factory), depositAmount);
 
         vm.expectRevert("Invalid beneficiary address");
-        digitalWill.depositERC20(address(mockToken), depositAmount, address(0));
+        factory.depositERC20(address(mockToken), depositAmount, address(0));
         vm.stopPrank();
     }
 
     function testDepositERC20RevertsWhenNotActive() public {
+        // Make the will claimable by warping time
+        vm.warp(block.timestamp + 30 days + 1 seconds);
+        factory.updateState(_grantor);
+
         uint256 depositAmount = 1000 * 10 ** 18;
         mockToken.mint(_grantor, depositAmount);
 
         vm.startPrank(_grantor);
-        mockToken.approve(address(digitalWill), depositAmount);
+        mockToken.approve(address(factory), depositAmount);
 
-        // Set contract state to CLAIMABLE (1)
-        vm.store(
-            address(digitalWill),
-            bytes32(uint256(2)), // slot 2 for state
-            bytes32(uint256(1)) // ContractState.CLAIMABLE
-        );
-
-        vm.expectRevert("Contract must be active");
-        digitalWill.depositERC20(address(mockToken), depositAmount, _beneficiary);
+        vm.expectRevert("Will must be active");
+        factory.depositERC20(address(mockToken), depositAmount, _beneficiary);
         vm.stopPrank();
     }
 
@@ -367,30 +391,30 @@ contract DigitalWillTest is Test {
         mockToken.mint(_grantor, depositAmount);
 
         vm.startPrank(_grantor);
-        mockToken.approve(address(digitalWill), depositAmount);
+        mockToken.approve(address(factory), depositAmount);
 
-        uint256 initialBalance = mockToken.balanceOf(address(digitalWill));
+        uint256 initialBalance = mockToken.balanceOf(address(factory));
 
-        digitalWill.depositERC20(address(mockToken), depositAmount, _beneficiary);
+        factory.depositERC20(address(mockToken), depositAmount, _beneficiary);
 
         // Check contract balance updated
         assertEq(
-            mockToken.balanceOf(address(digitalWill)),
+            mockToken.balanceOf(address(factory)),
             initialBalance + depositAmount,
             "Contract balance should increase by deposit amount"
         );
 
         // Check asset stored correctly
         (
-            DigitalWill.AssetType assetType,
+            DigitalWillFactory.AssetType assetType,
             address tokenAddress,
             uint256 tokenId,
             uint256 amount,
             address storedBeneficiary,
             bool claimed
-        ) = digitalWill.assets(0);
+        ) = factory.getAsset(_grantor, 0);
 
-        assertEq(uint256(assetType), uint256(DigitalWill.AssetType.ERC20), "Asset type should be ERC20");
+        assertEq(uint256(assetType), uint256(DigitalWillFactory.AssetType.ERC20), "Asset type should be ERC20");
         assertEq(tokenAddress, address(mockToken), "Token address should match");
         assertEq(tokenId, 0, "Token ID should be 0 for ERC20");
         assertEq(amount, depositAmount, "Amount should match");
@@ -398,8 +422,8 @@ contract DigitalWillTest is Test {
         assertFalse(claimed, "Should not be claimed");
 
         // Check beneficiaryAssets mapping updated
-        uint256 assetIndex = digitalWill.beneficiaryAssets(_beneficiary, 0);
-        assertEq(assetIndex, 0, "Asset index should be 0 for first asset");
+        uint256[] memory assetIndices = factory.getBeneficiaryAssets(_grantor, _beneficiary);
+        assertEq(assetIndices[0], 0, "Asset index should be 0 for first asset");
         vm.stopPrank();
     }
 
@@ -408,12 +432,14 @@ contract DigitalWillTest is Test {
         mockToken.mint(_grantor, depositAmount);
 
         vm.startPrank(_grantor);
-        mockToken.approve(address(digitalWill), depositAmount);
+        mockToken.approve(address(factory), depositAmount);
 
         vm.expectEmit(true, true, true, true);
-        emit AssetDeposited(_grantor, DigitalWill.AssetType.ERC20, address(mockToken), 0, depositAmount, _beneficiary);
+        emit AssetDeposited(
+            _grantor, DigitalWillFactory.AssetType.ERC20, address(mockToken), 0, depositAmount, _beneficiary
+        );
 
-        digitalWill.depositERC20(address(mockToken), depositAmount, _beneficiary);
+        factory.depositERC20(address(mockToken), depositAmount, _beneficiary);
         vm.stopPrank();
     }
 
@@ -427,37 +453,38 @@ contract DigitalWillTest is Test {
         mockToken.mint(_grantor, amount1 + amount2 + amount3);
 
         // First deposit
-        mockToken.approve(address(digitalWill), amount1);
-        digitalWill.depositERC20(address(mockToken), amount1, _beneficiary);
+        mockToken.approve(address(factory), amount1);
+        factory.depositERC20(address(mockToken), amount1, _beneficiary);
 
         // Second deposit
-        mockToken.approve(address(digitalWill), amount2);
-        digitalWill.depositERC20(address(mockToken), amount2, _beneficiary);
+        mockToken.approve(address(factory), amount2);
+        factory.depositERC20(address(mockToken), amount2, _beneficiary);
 
         // Third deposit
-        mockToken.approve(address(digitalWill), amount3);
-        digitalWill.depositERC20(address(mockToken), amount3, _beneficiary);
+        mockToken.approve(address(factory), amount3);
+        factory.depositERC20(address(mockToken), amount3, _beneficiary);
 
         // Check contract balance
         assertEq(
-            mockToken.balanceOf(address(digitalWill)),
+            mockToken.balanceOf(address(factory)),
             amount1 + amount2 + amount3,
             "Contract should have total of all deposits"
         );
 
         // Check all three assets stored
-        (,,, uint256 storedAmount1,,) = digitalWill.assets(0);
-        (,,, uint256 storedAmount2,,) = digitalWill.assets(1);
-        (,,, uint256 storedAmount3,,) = digitalWill.assets(2);
+        (,,, uint256 storedAmount1,,) = factory.getAsset(_grantor, 0);
+        (,,, uint256 storedAmount2,,) = factory.getAsset(_grantor, 1);
+        (,,, uint256 storedAmount3,,) = factory.getAsset(_grantor, 2);
 
         assertEq(storedAmount1, amount1, "First asset amount should match");
         assertEq(storedAmount2, amount2, "Second asset amount should match");
         assertEq(storedAmount3, amount3, "Third asset amount should match");
 
         // Check beneficiaryAssets has all three indices
-        assertEq(digitalWill.beneficiaryAssets(_beneficiary, 0), 0, "First asset index");
-        assertEq(digitalWill.beneficiaryAssets(_beneficiary, 1), 1, "Second asset index");
-        assertEq(digitalWill.beneficiaryAssets(_beneficiary, 2), 2, "Third asset index");
+        uint256[] memory assetIndices = factory.getBeneficiaryAssets(_grantor, _beneficiary);
+        assertEq(assetIndices[0], 0, "First asset index");
+        assertEq(assetIndices[1], 1, "Second asset index");
+        assertEq(assetIndices[2], 2, "Third asset index");
         vm.stopPrank();
     }
 
@@ -474,33 +501,37 @@ contract DigitalWillTest is Test {
         mockToken.mint(_grantor, amount1 + amount2 + amount3);
 
         // Deposit to different beneficiaries
-        mockToken.approve(address(digitalWill), amount1);
-        digitalWill.depositERC20(address(mockToken), amount1, beneficiary1);
+        mockToken.approve(address(factory), amount1);
+        factory.depositERC20(address(mockToken), amount1, beneficiary1);
 
-        mockToken.approve(address(digitalWill), amount2);
-        digitalWill.depositERC20(address(mockToken), amount2, beneficiary2);
+        mockToken.approve(address(factory), amount2);
+        factory.depositERC20(address(mockToken), amount2, beneficiary2);
 
-        mockToken.approve(address(digitalWill), amount3);
-        digitalWill.depositERC20(address(mockToken), amount3, beneficiary3);
+        mockToken.approve(address(factory), amount3);
+        factory.depositERC20(address(mockToken), amount3, beneficiary3);
 
         // Check contract balance
         assertEq(
-            mockToken.balanceOf(address(digitalWill)), amount1 + amount2 + amount3, "Contract should have total balance"
+            mockToken.balanceOf(address(factory)), amount1 + amount2 + amount3, "Contract should have total balance"
         );
 
         // Check each beneficiary has correct asset
-        (,,,, address stored1,) = digitalWill.assets(0);
-        (,,,, address stored2,) = digitalWill.assets(1);
-        (,,,, address stored3,) = digitalWill.assets(2);
+        (,,,, address stored1,) = factory.getAsset(_grantor, 0);
+        (,,,, address stored2,) = factory.getAsset(_grantor, 1);
+        (,,,, address stored3,) = factory.getAsset(_grantor, 2);
 
         assertEq(stored1, beneficiary1, "First beneficiary should match");
         assertEq(stored2, beneficiary2, "Second beneficiary should match");
         assertEq(stored3, beneficiary3, "Third beneficiary should match");
 
         // Check each beneficiary's asset mapping
-        assertEq(digitalWill.beneficiaryAssets(beneficiary1, 0), 0, "Beneficiary1 asset index");
-        assertEq(digitalWill.beneficiaryAssets(beneficiary2, 0), 1, "Beneficiary2 asset index");
-        assertEq(digitalWill.beneficiaryAssets(beneficiary3, 0), 2, "Beneficiary3 asset index");
+        uint256[] memory indices1 = factory.getBeneficiaryAssets(_grantor, beneficiary1);
+        uint256[] memory indices2 = factory.getBeneficiaryAssets(_grantor, beneficiary2);
+        uint256[] memory indices3 = factory.getBeneficiaryAssets(_grantor, beneficiary3);
+
+        assertEq(indices1[0], 0, "Beneficiary1 asset index");
+        assertEq(indices2[0], 1, "Beneficiary2 asset index");
+        assertEq(indices3[0], 2, "Beneficiary3 asset index");
         vm.stopPrank();
     }
 
@@ -515,24 +546,24 @@ contract DigitalWillTest is Test {
 
         // Mint and deposit from first token
         mockToken.mint(_grantor, amount1);
-        mockToken.approve(address(digitalWill), amount1);
-        digitalWill.depositERC20(address(mockToken), amount1, _beneficiary);
+        mockToken.approve(address(factory), amount1);
+        factory.depositERC20(address(mockToken), amount1, _beneficiary);
 
         // Mint and deposit from second token
         mockToken2.mint(_grantor, amount2);
-        mockToken2.approve(address(digitalWill), amount2);
-        digitalWill.depositERC20(address(mockToken2), amount2, _beneficiary);
+        mockToken2.approve(address(factory), amount2);
+        factory.depositERC20(address(mockToken2), amount2, _beneficiary);
 
         // Check both tokens stored with correct addresses
-        (, address token1,,,,) = digitalWill.assets(0);
-        (, address token2,,,,) = digitalWill.assets(1);
+        (, address token1,,,,) = factory.getAsset(_grantor, 0);
+        (, address token2,,,,) = factory.getAsset(_grantor, 1);
 
         assertEq(token1, address(mockToken), "First token address should match");
         assertEq(token2, address(mockToken2), "Second token address should match");
 
         // Check balances
-        assertEq(mockToken.balanceOf(address(digitalWill)), amount1, "Token1 balance should match");
-        assertEq(mockToken2.balanceOf(address(digitalWill)), amount2, "Token2 balance should match");
+        assertEq(mockToken.balanceOf(address(factory)), amount1, "Token1 balance should match");
+        assertEq(mockToken2.balanceOf(address(factory)), amount2, "Token2 balance should match");
 
         vm.stopPrank();
     }
@@ -545,7 +576,7 @@ contract DigitalWillTest is Test {
         // Don't approve the transfer
 
         vm.expectRevert();
-        digitalWill.depositERC20(address(mockToken), depositAmount, _beneficiary);
+        factory.depositERC20(address(mockToken), depositAmount, _beneficiary);
 
         vm.stopPrank();
     }
@@ -556,10 +587,10 @@ contract DigitalWillTest is Test {
         mockToken.mint(_grantor, depositAmount / 2);
 
         vm.startPrank(_grantor);
-        mockToken.approve(address(digitalWill), depositAmount);
+        mockToken.approve(address(factory), depositAmount);
 
         vm.expectRevert();
-        digitalWill.depositERC20(address(mockToken), depositAmount, _beneficiary);
+        factory.depositERC20(address(mockToken), depositAmount, _beneficiary);
 
         vm.stopPrank();
     }
@@ -570,10 +601,10 @@ contract DigitalWillTest is Test {
 
         vm.startPrank(_grantor);
         // Approve less than deposit amount
-        mockToken.approve(address(digitalWill), depositAmount / 2);
+        mockToken.approve(address(factory), depositAmount / 2);
 
         vm.expectRevert();
-        digitalWill.depositERC20(address(mockToken), depositAmount, _beneficiary);
+        factory.depositERC20(address(mockToken), depositAmount, _beneficiary);
 
         vm.stopPrank();
     }
@@ -586,30 +617,33 @@ contract DigitalWillTest is Test {
         mockToken.mint(_grantor, tokenAmount);
 
         // Deposit ETH
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositETH{value: 1 ether}(_beneficiary);
 
         // Deposit ERC20
-        mockToken.approve(address(digitalWill), tokenAmount);
-        digitalWill.depositERC20(address(mockToken), tokenAmount, _beneficiary);
+        mockToken.approve(address(factory), tokenAmount);
+        factory.depositERC20(address(mockToken), tokenAmount, _beneficiary);
 
         // Deposit NFT
         uint256 tokenId = mockNFT.mint(_grantor);
-        mockNFT.approve(address(digitalWill), tokenId);
-        digitalWill.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        mockNFT.approve(address(factory), tokenId);
+        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
 
         // Check all assets stored correctly
-        (DigitalWill.AssetType type0,,,,,) = digitalWill.assets(0);
-        (DigitalWill.AssetType type1,,,,,) = digitalWill.assets(1);
-        (DigitalWill.AssetType type2,,,,,) = digitalWill.assets(2);
+        (DigitalWillFactory.AssetType type0,,,,,) = factory.getAsset(_grantor, 0);
+        (DigitalWillFactory.AssetType type1,,,,,) = factory.getAsset(_grantor, 1);
+        (DigitalWillFactory.AssetType type2,,,,,) = factory.getAsset(_grantor, 2);
 
-        assertEq(uint256(type0), uint256(DigitalWill.AssetType.ETH), "Asset 0 should be ETH");
-        assertEq(uint256(type1), uint256(DigitalWill.AssetType.ERC20), "Asset 1 should be ERC20");
-        assertEq(uint256(type2), uint256(DigitalWill.AssetType.ERC721), "Asset 2 should be ERC721");
+        assertEq(uint256(type0), uint256(DigitalWillFactory.AssetType.ETH), "Asset 0 should be ETH");
+        assertEq(uint256(type1), uint256(DigitalWillFactory.AssetType.ERC20), "Asset 1 should be ERC20");
+        assertEq(uint256(type2), uint256(DigitalWillFactory.AssetType.ERC721), "Asset 2 should be ERC721");
 
         // Check beneficiaryAssets has all three
-        assertEq(digitalWill.beneficiaryAssets(_beneficiary, 0), 0, "First asset index");
-        assertEq(digitalWill.beneficiaryAssets(_beneficiary, 1), 1, "Second asset index");
-        assertEq(digitalWill.beneficiaryAssets(_beneficiary, 2), 2, "Third asset index");
+        uint256[] memory assetIndices761 = factory.getBeneficiaryAssets(_grantor, _beneficiary);
+        assertEq(assetIndices761[0], 0, "First asset index");
+        uint256[] memory assetIndices766 = factory.getBeneficiaryAssets(_grantor, _beneficiary);
+        assertEq(assetIndices766[1], 1, "Second asset index");
+        uint256[] memory assetIndices771 = factory.getBeneficiaryAssets(_grantor, _beneficiary);
+        assertEq(assetIndices771[2], 2, "Third asset index");
 
         vm.stopPrank();
     }
@@ -621,10 +655,10 @@ contract DigitalWillTest is Test {
         uint256 tokenId = mockNFT.mint(_randomUser);
 
         vm.startPrank(_randomUser);
-        mockNFT.approve(address(digitalWill), tokenId);
+        mockNFT.approve(address(factory), tokenId);
 
-        vm.expectRevert("You are not the grantor");
-        digitalWill.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        vm.expectRevert("Will does not exist");
+        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
         vm.stopPrank();
     }
 
@@ -632,7 +666,7 @@ contract DigitalWillTest is Test {
         vm.startPrank(_grantor);
 
         vm.expectRevert("Invalid token address");
-        digitalWill.depositERC721(address(0), 1, _beneficiary);
+        factory.depositERC721(address(0), 1, _beneficiary);
 
         vm.stopPrank();
     }
@@ -641,10 +675,10 @@ contract DigitalWillTest is Test {
         uint256 tokenId = mockNFT.mint(_grantor);
 
         vm.startPrank(_grantor);
-        mockNFT.approve(address(digitalWill), tokenId);
+        mockNFT.approve(address(factory), tokenId);
 
         vm.expectRevert("Invalid beneficiary address");
-        digitalWill.depositERC721(address(mockNFT), tokenId, address(0));
+        factory.depositERC721(address(mockNFT), tokenId, address(0));
 
         vm.stopPrank();
     }
@@ -655,7 +689,7 @@ contract DigitalWillTest is Test {
         vm.startPrank(_grantor);
 
         vm.expectRevert("Not the owner of NFT");
-        digitalWill.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
 
         vm.stopPrank();
     }
@@ -664,16 +698,16 @@ contract DigitalWillTest is Test {
         uint256 tokenId = mockNFT.mint(_grantor);
 
         vm.startPrank(_grantor);
-        mockNFT.approve(address(digitalWill), tokenId);
+        mockNFT.approve(address(factory), tokenId);
+        vm.stopPrank();
 
-        vm.store(
-            address(digitalWill),
-            bytes32(uint256(2)), // slot 2 for state
-            bytes32(uint256(1)) // ContractState.CLAIMABLE
-        );
+        // Make the will claimable by warping time
+        vm.warp(block.timestamp + 30 days + 1 seconds);
+        factory.updateState(_grantor);
 
-        vm.expectRevert("Contract must be active");
-        digitalWill.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        vm.startPrank(_grantor);
+        vm.expectRevert("Will must be active");
+        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
 
         vm.stopPrank();
     }
@@ -682,24 +716,24 @@ contract DigitalWillTest is Test {
         uint256 tokenId = mockNFT.mint(_grantor);
 
         vm.startPrank(_grantor);
-        mockNFT.approve(address(digitalWill), tokenId);
+        mockNFT.approve(address(factory), tokenId);
 
-        digitalWill.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
 
         // Check NFT ownership transferred
-        assertEq(mockNFT.ownerOf(tokenId), address(digitalWill), "NFT should be owned by contract");
+        assertEq(mockNFT.ownerOf(tokenId), address(factory), "NFT should be owned by contract");
 
         // Check asset stored correctly
         (
-            DigitalWill.AssetType assetType,
+            DigitalWillFactory.AssetType assetType,
             address tokenAddress,
             uint256 storedTokenId,
             uint256 amount,
             address storedBeneficiary,
             bool claimed
-        ) = digitalWill.assets(0);
+        ) = factory.getAsset(_grantor, 0);
 
-        assertEq(uint256(assetType), uint256(DigitalWill.AssetType.ERC721), "Asset type should be ERC721");
+        assertEq(uint256(assetType), uint256(DigitalWillFactory.AssetType.ERC721), "Asset type should be ERC721");
         assertEq(tokenAddress, address(mockNFT), "Token address should match");
         assertEq(storedTokenId, tokenId, "Token ID should match");
         assertEq(amount, 1, "Amount should be 1");
@@ -707,7 +741,8 @@ contract DigitalWillTest is Test {
         assertFalse(claimed, "Should not be claimed");
 
         // Check beneficiaryAssets mapping
-        uint256 assetIndex = digitalWill.beneficiaryAssets(_beneficiary, 0);
+        uint256[] memory assetIndices = factory.getBeneficiaryAssets(_grantor, _beneficiary);
+        uint256 assetIndex = assetIndices[0];
         assertEq(assetIndex, 0, "Asset index should be 0");
 
         vm.stopPrank();
@@ -718,12 +753,12 @@ contract DigitalWillTest is Test {
         uint256 tokenId = mockNFT.mint(_grantor);
 
         vm.startPrank(_grantor);
-        mockNFT.approve(address(digitalWill), tokenId);
+        mockNFT.approve(address(factory), tokenId);
 
         vm.expectEmit(true, true, true, true);
-        emit AssetDeposited(_grantor, DigitalWill.AssetType.ERC721, address(mockNFT), tokenId, 1, _beneficiary);
+        emit AssetDeposited(_grantor, DigitalWillFactory.AssetType.ERC721, address(mockNFT), tokenId, 1, _beneficiary);
 
-        digitalWill.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
 
         vm.stopPrank();
     }
@@ -733,35 +768,36 @@ contract DigitalWillTest is Test {
 
         // Mint and deposit multiple NFTs
         uint256 tokenId1 = mockNFT.mint(_grantor);
-        mockNFT.approve(address(digitalWill), tokenId1);
-        digitalWill.depositERC721(address(mockNFT), tokenId1, _beneficiary);
+        mockNFT.approve(address(factory), tokenId1);
+        factory.depositERC721(address(mockNFT), tokenId1, _beneficiary);
 
         uint256 tokenId2 = mockNFT.mint(_grantor);
-        mockNFT.approve(address(digitalWill), tokenId2);
-        digitalWill.depositERC721(address(mockNFT), tokenId2, _beneficiary);
+        mockNFT.approve(address(factory), tokenId2);
+        factory.depositERC721(address(mockNFT), tokenId2, _beneficiary);
 
         uint256 tokenId3 = mockNFT.mint(_grantor);
-        mockNFT.approve(address(digitalWill), tokenId3);
-        digitalWill.depositERC721(address(mockNFT), tokenId3, _beneficiary);
+        mockNFT.approve(address(factory), tokenId3);
+        factory.depositERC721(address(mockNFT), tokenId3, _beneficiary);
 
         // Check all NFTs are owned by contract
-        assertEq(mockNFT.ownerOf(tokenId1), address(digitalWill), "NFT 1 should be owned by contract");
-        assertEq(mockNFT.ownerOf(tokenId2), address(digitalWill), "NFT 2 should be owned by contract");
-        assertEq(mockNFT.ownerOf(tokenId3), address(digitalWill), "NFT 3 should be owned by contract");
+        assertEq(mockNFT.ownerOf(tokenId1), address(factory), "NFT 1 should be owned by contract");
+        assertEq(mockNFT.ownerOf(tokenId2), address(factory), "NFT 2 should be owned by contract");
+        assertEq(mockNFT.ownerOf(tokenId3), address(factory), "NFT 3 should be owned by contract");
 
         // Check all assets stored
-        (,, uint256 storedId1,,,) = digitalWill.assets(0);
-        (,, uint256 storedId2,,,) = digitalWill.assets(1);
-        (,, uint256 storedId3,,,) = digitalWill.assets(2);
+        (,, uint256 storedId1,,,) = factory.getAsset(_grantor, 0);
+        (,, uint256 storedId2,,,) = factory.getAsset(_grantor, 1);
+        (,, uint256 storedId3,,,) = factory.getAsset(_grantor, 2);
 
         assertEq(storedId1, tokenId1, "Token ID 1 should match");
         assertEq(storedId2, tokenId2, "Token ID 2 should match");
         assertEq(storedId3, tokenId3, "Token ID 3 should match");
 
         // Check beneficiaryAssets mapping has all three
-        assertEq(digitalWill.beneficiaryAssets(_beneficiary, 0), 0, "First asset index");
-        assertEq(digitalWill.beneficiaryAssets(_beneficiary, 1), 1, "Second asset index");
-        assertEq(digitalWill.beneficiaryAssets(_beneficiary, 2), 2, "Third asset index");
+        uint256[] memory nft3AssetIndices = factory.getBeneficiaryAssets(_grantor, _beneficiary);
+        assertEq(nft3AssetIndices[0], 0, "First asset index");
+        assertEq(nft3AssetIndices[1], 1, "Second asset index");
+        assertEq(nft3AssetIndices[2], 2, "Third asset index");
 
         vm.stopPrank();
     }
@@ -775,30 +811,34 @@ contract DigitalWillTest is Test {
 
         // Mint and deposit NFTs to different beneficiaries
         uint256 tokenId1 = mockNFT.mint(_grantor);
-        mockNFT.approve(address(digitalWill), tokenId1);
-        digitalWill.depositERC721(address(mockNFT), tokenId1, beneficiary1);
+        mockNFT.approve(address(factory), tokenId1);
+        factory.depositERC721(address(mockNFT), tokenId1, beneficiary1);
 
         uint256 tokenId2 = mockNFT.mint(_grantor);
-        mockNFT.approve(address(digitalWill), tokenId2);
-        digitalWill.depositERC721(address(mockNFT), tokenId2, beneficiary2);
+        mockNFT.approve(address(factory), tokenId2);
+        factory.depositERC721(address(mockNFT), tokenId2, beneficiary2);
 
         uint256 tokenId3 = mockNFT.mint(_grantor);
-        mockNFT.approve(address(digitalWill), tokenId3);
-        digitalWill.depositERC721(address(mockNFT), tokenId3, beneficiary3);
+        mockNFT.approve(address(factory), tokenId3);
+        factory.depositERC721(address(mockNFT), tokenId3, beneficiary3);
 
         // Check each beneficiary has correct asset
-        (,,,, address stored1,) = digitalWill.assets(0);
-        (,,,, address stored2,) = digitalWill.assets(1);
-        (,,,, address stored3,) = digitalWill.assets(2);
+        (,,,, address stored1,) = factory.getAsset(_grantor, 0);
+        (,,,, address stored2,) = factory.getAsset(_grantor, 1);
+        (,,,, address stored3,) = factory.getAsset(_grantor, 2);
 
         assertEq(stored1, beneficiary1, "Beneficiary 1 should match");
         assertEq(stored2, beneficiary2, "Beneficiary 2 should match");
         assertEq(stored3, beneficiary3, "Beneficiary 3 should match");
 
         // Check each beneficiary's asset mapping
-        assertEq(digitalWill.beneficiaryAssets(beneficiary1, 0), 0, "Beneficiary1 asset index");
-        assertEq(digitalWill.beneficiaryAssets(beneficiary2, 0), 1, "Beneficiary2 asset index");
-        assertEq(digitalWill.beneficiaryAssets(beneficiary3, 0), 2, "Beneficiary3 asset index");
+        uint256[] memory indices1 = factory.getBeneficiaryAssets(_grantor, beneficiary1);
+        uint256[] memory indices2 = factory.getBeneficiaryAssets(_grantor, beneficiary2);
+        uint256[] memory indices3 = factory.getBeneficiaryAssets(_grantor, beneficiary3);
+
+        assertEq(indices1[0], 0, "Beneficiary1 asset index");
+        assertEq(indices2[0], 1, "Beneficiary2 asset index");
+        assertEq(indices3[0], 2, "Beneficiary3 asset index");
 
         vm.stopPrank();
     }
@@ -811,24 +851,24 @@ contract DigitalWillTest is Test {
 
         // Mint and deposit from first collection
         uint256 tokenId1 = mockNFT.mint(_grantor);
-        mockNFT.approve(address(digitalWill), tokenId1);
-        digitalWill.depositERC721(address(mockNFT), tokenId1, _beneficiary);
+        mockNFT.approve(address(factory), tokenId1);
+        factory.depositERC721(address(mockNFT), tokenId1, _beneficiary);
 
         // Mint and deposit from second collection
         uint256 tokenId2 = mockNFT2.mint(_grantor);
-        mockNFT2.approve(address(digitalWill), tokenId2);
-        digitalWill.depositERC721(address(mockNFT2), tokenId2, _beneficiary);
+        mockNFT2.approve(address(factory), tokenId2);
+        factory.depositERC721(address(mockNFT2), tokenId2, _beneficiary);
 
         // Check both NFTs stored with correct addresses
-        (, address token1,,,,) = digitalWill.assets(0);
-        (, address token2,,,,) = digitalWill.assets(1);
+        (, address token1,,,,) = factory.getAsset(_grantor, 0);
+        (, address token2,,,,) = factory.getAsset(_grantor, 1);
 
         assertEq(token1, address(mockNFT), "First token address should match");
         assertEq(token2, address(mockNFT2), "Second token address should match");
 
         // Check ownership
-        assertEq(mockNFT.ownerOf(tokenId1), address(digitalWill), "NFT 1 should be owned by contract");
-        assertEq(mockNFT2.ownerOf(tokenId2), address(digitalWill), "NFT 2 should be owned by contract");
+        assertEq(mockNFT.ownerOf(tokenId1), address(factory), "NFT 1 should be owned by contract");
+        assertEq(mockNFT2.ownerOf(tokenId2), address(factory), "NFT 2 should be owned by contract");
 
         vm.stopPrank();
     }
@@ -841,7 +881,7 @@ contract DigitalWillTest is Test {
         // Don't approve the transfer
 
         vm.expectRevert();
-        digitalWill.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
 
         vm.stopPrank();
     }
@@ -852,7 +892,7 @@ contract DigitalWillTest is Test {
         vm.startPrank(_grantor);
 
         vm.expectRevert();
-        digitalWill.depositERC721(address(mockNFT), nonExistentTokenId, _beneficiary);
+        factory.depositERC721(address(mockNFT), nonExistentTokenId, _beneficiary);
 
         vm.stopPrank();
     }
@@ -862,29 +902,32 @@ contract DigitalWillTest is Test {
         vm.deal(_grantor, 10 ether);
 
         // Deposit ETH
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositETH{value: 1 ether}(_beneficiary);
 
         // Deposit NFT
         uint256 tokenId = mockNFT.mint(_grantor);
-        mockNFT.approve(address(digitalWill), tokenId);
-        digitalWill.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        mockNFT.approve(address(factory), tokenId);
+        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
 
         // Deposit more ETH
-        digitalWill.depositETH{value: 2 ether}(_beneficiary);
+        factory.depositETH{value: 2 ether}(_beneficiary);
 
         // Check all assets stored correctly
-        (DigitalWill.AssetType type0,,,,,) = digitalWill.assets(0);
-        (DigitalWill.AssetType type1,,,,,) = digitalWill.assets(1);
-        (DigitalWill.AssetType type2,,,,,) = digitalWill.assets(2);
+        (DigitalWillFactory.AssetType type0,,,,,) = factory.getAsset(_grantor, 0);
+        (DigitalWillFactory.AssetType type1,,,,,) = factory.getAsset(_grantor, 1);
+        (DigitalWillFactory.AssetType type2,,,,,) = factory.getAsset(_grantor, 2);
 
-        assertEq(uint256(type0), uint256(DigitalWill.AssetType.ETH), "Asset 0 should be ETH");
-        assertEq(uint256(type1), uint256(DigitalWill.AssetType.ERC721), "Asset 1 should be ERC721");
-        assertEq(uint256(type2), uint256(DigitalWill.AssetType.ETH), "Asset 2 should be ETH");
+        assertEq(uint256(type0), uint256(DigitalWillFactory.AssetType.ETH), "Asset 0 should be ETH");
+        assertEq(uint256(type1), uint256(DigitalWillFactory.AssetType.ERC721), "Asset 1 should be ERC721");
+        assertEq(uint256(type2), uint256(DigitalWillFactory.AssetType.ETH), "Asset 2 should be ETH");
 
         // Check beneficiaryAssets has all three
-        assertEq(digitalWill.beneficiaryAssets(_beneficiary, 0), 0, "First asset index");
-        assertEq(digitalWill.beneficiaryAssets(_beneficiary, 1), 1, "Second asset index");
-        assertEq(digitalWill.beneficiaryAssets(_beneficiary, 2), 2, "Third asset index");
+        uint256[] memory assetIndices1140 = factory.getBeneficiaryAssets(_grantor, _beneficiary);
+        assertEq(assetIndices1140[0], 0, "First asset index");
+        uint256[] memory assetIndices1145 = factory.getBeneficiaryAssets(_grantor, _beneficiary);
+        assertEq(assetIndices1145[1], 1, "Second asset index");
+        uint256[] memory assetIndices1150 = factory.getBeneficiaryAssets(_grantor, _beneficiary);
+        assertEq(assetIndices1150[2], 2, "Third asset index");
 
         vm.stopPrank();
     }
@@ -896,13 +939,13 @@ contract DigitalWillTest is Test {
         // Setup: Deposit an ETH asset
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositETH{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
         // Try to claim before heartbeat expires
         vm.prank(_beneficiary);
-        vm.expectRevert("Contract not yet claimable");
-        digitalWill.claimSpecificAsset(0);
+        vm.expectRevert("Will not yet claimable");
+        factory.claimAsset(_grantor, 0);
     }
 
     // Test: Revert when caller is not the beneficiary
@@ -910,7 +953,7 @@ contract DigitalWillTest is Test {
         // Setup: Deposit an ETH asset
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositETH{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
         // Make contract claimable
@@ -919,7 +962,7 @@ contract DigitalWillTest is Test {
         // Try to claim with wrong beneficiary
         vm.prank(_randomUser);
         vm.expectRevert("Not the beneficiary");
-        digitalWill.claimSpecificAsset(0);
+        factory.claimAsset(_grantor, 0);
     }
 
     // Test: Revert when asset already claimed
@@ -927,8 +970,8 @@ contract DigitalWillTest is Test {
         // Setup: Deposit two ETH assets so contract doesn't complete after first claim
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositETH{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
         // Make contract claimable
@@ -936,12 +979,12 @@ contract DigitalWillTest is Test {
 
         // Claim the first asset
         vm.prank(_beneficiary);
-        digitalWill.claimSpecificAsset(0);
+        factory.claimAsset(_grantor, 0);
 
         // Try to claim the same asset again
         vm.prank(_beneficiary);
         vm.expectRevert("Asset already claimed");
-        digitalWill.claimSpecificAsset(0);
+        factory.claimAsset(_grantor, 0);
     }
 
     // Test: Revert when asset index is invalid
@@ -949,7 +992,7 @@ contract DigitalWillTest is Test {
         // Setup: Deposit an ETH asset
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositETH{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
         // Make contract claimable
@@ -958,7 +1001,7 @@ contract DigitalWillTest is Test {
         // Try to claim non-existent asset
         vm.prank(_beneficiary);
         vm.expectRevert();
-        digitalWill.claimSpecificAsset(999);
+        factory.claimAsset(_grantor, 999);
     }
 
     // Test: Revert when contract already completed
@@ -966,7 +1009,7 @@ contract DigitalWillTest is Test {
         // Setup: Deposit an ETH asset
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositETH{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
         // Make contract claimable
@@ -974,17 +1017,18 @@ contract DigitalWillTest is Test {
 
         // Claim the asset (this completes the contract)
         vm.prank(_beneficiary);
-        digitalWill.claimSpecificAsset(0);
+        factory.claimAsset(_grantor, 0);
 
         // Verify contract is completed
+        (,, DigitalWillFactory.ContractState willState,) = factory.getWillInfo(_grantor);
         assertEq(
-            uint256(digitalWill.state()), uint256(DigitalWill.ContractState.COMPLETED), "Contract should be completed"
+            uint256(willState), uint256(DigitalWillFactory.ContractState.COMPLETED), "Contract should be completed"
         );
 
         // Try to claim again after completion
         vm.prank(_beneficiary);
-        vm.expectRevert("Contract already completed");
-        digitalWill.claimSpecificAsset(0);
+        vm.expectRevert("Will already completed");
+        factory.claimAsset(_grantor, 0);
     }
 
     // Test: Successfully claim ETH asset
@@ -994,7 +1038,7 @@ contract DigitalWillTest is Test {
         // Setup: Deposit ETH
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        digitalWill.depositETH{value: depositAmount}(_beneficiary);
+        factory.depositETH{value: depositAmount}(_beneficiary);
         vm.stopPrank();
 
         // Make contract claimable
@@ -1002,20 +1046,18 @@ contract DigitalWillTest is Test {
 
         // Record initial balances
         uint256 beneficiaryBalanceBefore = _beneficiary.balance;
-        uint256 contractBalanceBefore = address(digitalWill).balance;
+        uint256 contractBalanceBefore = address(factory).balance;
 
         // Claim the asset
         vm.prank(_beneficiary);
-        digitalWill.claimSpecificAsset(0);
+        factory.claimAsset(_grantor, 0);
 
         // Verify balances updated
         assertEq(_beneficiary.balance, beneficiaryBalanceBefore + depositAmount, "Beneficiary should receive ETH");
-        assertEq(
-            address(digitalWill).balance, contractBalanceBefore - depositAmount, "Contract balance should decrease"
-        );
+        assertEq(address(factory).balance, contractBalanceBefore - depositAmount, "Contract balance should decrease");
 
         // Verify asset marked as claimed
-        (,,,,, bool claimed) = digitalWill.assets(0);
+        (,,,,, bool claimed) = factory.getAsset(_grantor, 0);
         assertTrue(claimed, "Asset should be marked as claimed");
     }
 
@@ -1026,8 +1068,8 @@ contract DigitalWillTest is Test {
         // Setup: Deposit ERC20
         mockToken.mint(_grantor, depositAmount);
         vm.startPrank(_grantor);
-        mockToken.approve(address(digitalWill), depositAmount);
-        digitalWill.depositERC20(address(mockToken), depositAmount, _beneficiary);
+        mockToken.approve(address(factory), depositAmount);
+        factory.depositERC20(address(mockToken), depositAmount, _beneficiary);
         vm.stopPrank();
 
         // Make contract claimable
@@ -1035,11 +1077,11 @@ contract DigitalWillTest is Test {
 
         // Record initial balances
         uint256 beneficiaryBalanceBefore = mockToken.balanceOf(_beneficiary);
-        uint256 contractBalanceBefore = mockToken.balanceOf(address(digitalWill));
+        uint256 contractBalanceBefore = mockToken.balanceOf(address(factory));
 
         // Claim the asset
         vm.prank(_beneficiary);
-        digitalWill.claimSpecificAsset(0);
+        factory.claimAsset(_grantor, 0);
 
         // Verify balances updated
         assertEq(
@@ -1048,13 +1090,13 @@ contract DigitalWillTest is Test {
             "Beneficiary should receive tokens"
         );
         assertEq(
-            mockToken.balanceOf(address(digitalWill)),
+            mockToken.balanceOf(address(factory)),
             contractBalanceBefore - depositAmount,
             "Contract balance should decrease"
         );
 
         // Verify asset marked as claimed
-        (,,,,, bool claimed) = digitalWill.assets(0);
+        (,,,,, bool claimed) = factory.getAsset(_grantor, 0);
         assertTrue(claimed, "Asset should be marked as claimed");
     }
 
@@ -1063,8 +1105,8 @@ contract DigitalWillTest is Test {
         // Setup: Deposit ERC721
         uint256 tokenId = mockNFT.mint(_grantor);
         vm.startPrank(_grantor);
-        mockNFT.approve(address(digitalWill), tokenId);
-        digitalWill.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        mockNFT.approve(address(factory), tokenId);
+        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
         vm.stopPrank();
 
         // Make contract claimable
@@ -1072,13 +1114,13 @@ contract DigitalWillTest is Test {
 
         // Claim the asset
         vm.prank(_beneficiary);
-        digitalWill.claimSpecificAsset(0);
+        factory.claimAsset(_grantor, 0);
 
         // Verify NFT transferred
         assertEq(mockNFT.ownerOf(tokenId), _beneficiary, "Beneficiary should own the NFT");
 
         // Verify asset marked as claimed
-        (,,,,, bool claimed) = digitalWill.assets(0);
+        (,,,,, bool claimed) = factory.getAsset(_grantor, 0);
         assertTrue(claimed, "Asset should be marked as claimed");
     }
 
@@ -1089,7 +1131,7 @@ contract DigitalWillTest is Test {
         // Setup: Deposit ETH
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        digitalWill.depositETH{value: depositAmount}(_beneficiary);
+        factory.depositETH{value: depositAmount}(_beneficiary);
         vm.stopPrank();
 
         // Make contract claimable
@@ -1097,11 +1139,11 @@ contract DigitalWillTest is Test {
 
         // Expect event emission
         vm.expectEmit(true, true, true, true);
-        emit AssetClaimed(_beneficiary, 0, DigitalWill.AssetType.ETH, address(0), 0, depositAmount);
+        emit AssetClaimed(_grantor, _beneficiary, 0, DigitalWillFactory.AssetType.ETH, address(0), 0, depositAmount);
 
         // Claim the asset
         vm.prank(_beneficiary);
-        digitalWill.claimSpecificAsset(0);
+        factory.claimAsset(_grantor, 0);
     }
 
     // Test: Contract completes when all assets claimed (single asset)
@@ -1109,30 +1151,28 @@ contract DigitalWillTest is Test {
         // Setup: Deposit one ETH asset
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositETH{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
         // Make contract claimable
         _setupClaimableState();
 
         // Verify state is CLAIMABLE before claim
-        digitalWill.updateState();
-        assertEq(
-            uint256(digitalWill.state()), uint256(DigitalWill.ContractState.CLAIMABLE), "State should be CLAIMABLE"
-        );
+        factory.updateState(_grantor);
+        (,, DigitalWillFactory.ContractState willState,) = factory.getWillInfo(_grantor);
+        assertEq(uint256(willState), uint256(DigitalWillFactory.ContractState.CLAIMABLE), "State should be CLAIMABLE");
 
         // Expect ContractCompleted event
         vm.expectEmit(true, true, true, true);
-        emit ContractCompleted(_grantor);
+        emit WillCompleted(_grantor);
 
         // Claim the asset
         vm.prank(_beneficiary);
-        digitalWill.claimSpecificAsset(0);
+        factory.claimAsset(_grantor, 0);
 
         // Verify state changed to COMPLETED
-        assertEq(
-            uint256(digitalWill.state()), uint256(DigitalWill.ContractState.COMPLETED), "State should be COMPLETED"
-        );
+        (,, willState,) = factory.getWillInfo(_grantor);
+        assertEq(uint256(willState), uint256(DigitalWillFactory.ContractState.COMPLETED), "State should be COMPLETED");
     }
 
     // Test: Contract completes when all assets claimed (multiple assets)
@@ -1141,15 +1181,15 @@ contract DigitalWillTest is Test {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
 
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositETH{value: 1 ether}(_beneficiary);
 
         mockToken.mint(_grantor, 1000 * 10 ** 18);
-        mockToken.approve(address(digitalWill), 1000 * 10 ** 18);
-        digitalWill.depositERC20(address(mockToken), 1000 * 10 ** 18, _beneficiary);
+        mockToken.approve(address(factory), 1000 * 10 ** 18);
+        factory.depositERC20(address(mockToken), 1000 * 10 ** 18, _beneficiary);
 
         uint256 tokenId = mockNFT.mint(_grantor);
-        mockNFT.approve(address(digitalWill), tokenId);
-        digitalWill.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        mockNFT.approve(address(factory), tokenId);
+        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
         vm.stopPrank();
 
         // Make contract claimable
@@ -1158,25 +1198,28 @@ contract DigitalWillTest is Test {
         vm.startPrank(_beneficiary);
 
         // Claim first two assets - should not complete
-        digitalWill.claimSpecificAsset(0);
+        factory.claimAsset(_grantor, 0);
+        (,, DigitalWillFactory.ContractState willState,) = factory.getWillInfo(_grantor);
         assertEq(
-            uint256(digitalWill.state()),
-            uint256(DigitalWill.ContractState.CLAIMABLE),
+            uint256(willState),
+            uint256(DigitalWillFactory.ContractState.CLAIMABLE),
             "State should still be CLAIMABLE after first claim"
         );
 
-        digitalWill.claimSpecificAsset(1);
+        factory.claimAsset(_grantor, 1);
+        (,, willState,) = factory.getWillInfo(_grantor);
         assertEq(
-            uint256(digitalWill.state()),
-            uint256(DigitalWill.ContractState.CLAIMABLE),
+            uint256(willState),
+            uint256(DigitalWillFactory.ContractState.CLAIMABLE),
             "State should still be CLAIMABLE after second claim"
         );
 
         // Claim last asset - should complete
-        digitalWill.claimSpecificAsset(2);
+        factory.claimAsset(_grantor, 2);
+        (,, willState,) = factory.getWillInfo(_grantor);
         assertEq(
-            uint256(digitalWill.state()),
-            uint256(DigitalWill.ContractState.COMPLETED),
+            uint256(willState),
+            uint256(DigitalWillFactory.ContractState.COMPLETED),
             "State should be COMPLETED after all claims"
         );
 
@@ -1193,9 +1236,9 @@ contract DigitalWillTest is Test {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
 
-        digitalWill.depositETH{value: 1 ether}(beneficiary1);
-        digitalWill.depositETH{value: 2 ether}(beneficiary2);
-        digitalWill.depositETH{value: 3 ether}(beneficiary3);
+        factory.depositETH{value: 1 ether}(beneficiary1);
+        factory.depositETH{value: 2 ether}(beneficiary2);
+        factory.depositETH{value: 3 ether}(beneficiary3);
         vm.stopPrank();
 
         // Make contract claimable
@@ -1203,20 +1246,21 @@ contract DigitalWillTest is Test {
 
         // Each beneficiary claims their asset
         vm.prank(beneficiary1);
-        digitalWill.claimSpecificAsset(0);
+        factory.claimAsset(_grantor, 0);
         assertEq(beneficiary1.balance, 1 ether, "Beneficiary1 should receive 1 ETH");
 
         vm.prank(beneficiary2);
-        digitalWill.claimSpecificAsset(1);
+        factory.claimAsset(_grantor, 1);
         assertEq(beneficiary2.balance, 2 ether, "Beneficiary2 should receive 2 ETH");
 
         vm.prank(beneficiary3);
-        digitalWill.claimSpecificAsset(2);
+        factory.claimAsset(_grantor, 2);
         assertEq(beneficiary3.balance, 3 ether, "Beneficiary3 should receive 3 ETH");
 
         // Verify contract completed
+        (,, DigitalWillFactory.ContractState willState,) = factory.getWillInfo(_grantor);
         assertEq(
-            uint256(digitalWill.state()), uint256(DigitalWill.ContractState.COMPLETED), "Contract should be completed"
+            uint256(willState), uint256(DigitalWillFactory.ContractState.COMPLETED), "Contract should be completed"
         );
     }
 
@@ -1228,8 +1272,8 @@ contract DigitalWillTest is Test {
         // Setup: Deposit assets for different beneficiaries
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        digitalWill.depositETH{value: 1 ether}(beneficiary1);
-        digitalWill.depositETH{value: 2 ether}(beneficiary2);
+        factory.depositETH{value: 1 ether}(beneficiary1);
+        factory.depositETH{value: 2 ether}(beneficiary2);
         vm.stopPrank();
 
         // Make contract claimable
@@ -1238,12 +1282,12 @@ contract DigitalWillTest is Test {
         // Beneficiary1 tries to claim beneficiary2's asset
         vm.prank(beneficiary1);
         vm.expectRevert("Not the beneficiary");
-        digitalWill.claimSpecificAsset(1);
+        factory.claimAsset(_grantor, 1);
 
         // Beneficiary2 tries to claim beneficiary1's asset
         vm.prank(beneficiary2);
         vm.expectRevert("Not the beneficiary");
-        digitalWill.claimSpecificAsset(0);
+        factory.claimAsset(_grantor, 0);
     }
 
     // Test: Claiming assets out of order
@@ -1251,9 +1295,9 @@ contract DigitalWillTest is Test {
         // Setup: Deposit multiple assets
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
-        digitalWill.depositETH{value: 2 ether}(_beneficiary);
-        digitalWill.depositETH{value: 3 ether}(_beneficiary);
+        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositETH{value: 2 ether}(_beneficiary);
+        factory.depositETH{value: 3 ether}(_beneficiary);
         vm.stopPrank();
 
         // Make contract claimable
@@ -1264,21 +1308,21 @@ contract DigitalWillTest is Test {
         vm.startPrank(_beneficiary);
 
         // Claim in reverse order
-        digitalWill.claimSpecificAsset(2);
+        factory.claimAsset(_grantor, 2);
         assertEq(_beneficiary.balance, balanceBefore + 3 ether, "Should receive 3 ETH");
 
-        digitalWill.claimSpecificAsset(0);
+        factory.claimAsset(_grantor, 0);
         assertEq(_beneficiary.balance, balanceBefore + 4 ether, "Should receive additional 1 ETH");
 
-        digitalWill.claimSpecificAsset(1);
+        factory.claimAsset(_grantor, 1);
         assertEq(_beneficiary.balance, balanceBefore + 6 ether, "Should receive additional 2 ETH");
 
         vm.stopPrank();
 
         // Verify all claimed
-        (,,,,, bool claimed0) = digitalWill.assets(0);
-        (,,,,, bool claimed1) = digitalWill.assets(1);
-        (,,,,, bool claimed2) = digitalWill.assets(2);
+        (,,,,, bool claimed0) = factory.getAsset(_grantor, 0);
+        (,,,,, bool claimed1) = factory.getAsset(_grantor, 1);
+        (,,,,, bool claimed2) = factory.getAsset(_grantor, 2);
         assertTrue(claimed0 && claimed1 && claimed2, "All assets should be claimed");
     }
 
@@ -1287,9 +1331,9 @@ contract DigitalWillTest is Test {
         // Setup: Deposit multiple assets
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
-        digitalWill.depositETH{value: 2 ether}(_beneficiary);
-        digitalWill.depositETH{value: 3 ether}(_beneficiary);
+        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositETH{value: 2 ether}(_beneficiary);
+        factory.depositETH{value: 3 ether}(_beneficiary);
         vm.stopPrank();
 
         // Make contract claimable
@@ -1297,21 +1341,22 @@ contract DigitalWillTest is Test {
 
         // Claim only first asset
         vm.prank(_beneficiary);
-        digitalWill.claimSpecificAsset(0);
+        factory.claimAsset(_grantor, 0);
 
         // Verify first asset claimed, others not
-        (,,,,, bool claimed0) = digitalWill.assets(0);
-        (,,,,, bool claimed1) = digitalWill.assets(1);
-        (,,,,, bool claimed2) = digitalWill.assets(2);
+        (,,,,, bool claimed0) = factory.getAsset(_grantor, 0);
+        (,,,,, bool claimed1) = factory.getAsset(_grantor, 1);
+        (,,,,, bool claimed2) = factory.getAsset(_grantor, 2);
 
         assertTrue(claimed0, "Asset 0 should be claimed");
         assertFalse(claimed1, "Asset 1 should not be claimed");
         assertFalse(claimed2, "Asset 2 should not be claimed");
 
         // Contract should still be CLAIMABLE
+        (,, DigitalWillFactory.ContractState willState,) = factory.getWillInfo(_grantor);
         assertEq(
-            uint256(digitalWill.state()),
-            uint256(DigitalWill.ContractState.CLAIMABLE),
+            uint256(willState),
+            uint256(DigitalWillFactory.ContractState.CLAIMABLE),
             "Contract should still be CLAIMABLE"
         );
     }
@@ -1321,25 +1366,26 @@ contract DigitalWillTest is Test {
         // Setup: Deposit an asset
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositETH{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
         // Warp time but don't manually update state
         vm.warp(block.timestamp + 30 days + 1 seconds);
 
         // Verify state is still ACTIVE (not yet updated)
+        (,, DigitalWillFactory.ContractState willState,) = factory.getWillInfo(_grantor);
         assertEq(
-            uint256(digitalWill.state()),
-            uint256(DigitalWill.ContractState.ACTIVE),
+            uint256(willState),
+            uint256(DigitalWillFactory.ContractState.ACTIVE),
             "State should still be ACTIVE before claim"
         );
 
         // Claim should automatically update state to CLAIMABLE then claim
         vm.prank(_beneficiary);
-        digitalWill.claimSpecificAsset(0);
+        factory.claimAsset(_grantor, 0);
 
         // Asset should be successfully claimed
-        (,,,,, bool claimed) = digitalWill.assets(0);
+        (,,,,, bool claimed) = factory.getAsset(_grantor, 0);
         assertTrue(claimed, "Asset should be claimed");
     }
 
@@ -1353,15 +1399,15 @@ contract DigitalWillTest is Test {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
 
-        digitalWill.depositETH{value: ethAmount}(_beneficiary);
+        factory.depositETH{value: ethAmount}(_beneficiary);
 
         mockToken.mint(_grantor, tokenAmount);
-        mockToken.approve(address(digitalWill), tokenAmount);
-        digitalWill.depositERC20(address(mockToken), tokenAmount, _beneficiary);
+        mockToken.approve(address(factory), tokenAmount);
+        factory.depositERC20(address(mockToken), tokenAmount, _beneficiary);
 
         nftTokenId = mockNFT.mint(_grantor);
-        mockNFT.approve(address(digitalWill), nftTokenId);
-        digitalWill.depositERC721(address(mockNFT), nftTokenId, _beneficiary);
+        mockNFT.approve(address(factory), nftTokenId);
+        factory.depositERC721(address(mockNFT), nftTokenId, _beneficiary);
         vm.stopPrank();
 
         // Make contract claimable
@@ -1370,9 +1416,9 @@ contract DigitalWillTest is Test {
         // Claim all assets
         vm.startPrank(_beneficiary);
 
-        digitalWill.claimSpecificAsset(0); // ETH
-        digitalWill.claimSpecificAsset(1); // ERC20
-        digitalWill.claimSpecificAsset(2); // ERC721
+        factory.claimAsset(_grantor, 0); // ETH
+        factory.claimAsset(_grantor, 1); // ERC20
+        factory.claimAsset(_grantor, 2); // ERC721
 
         vm.stopPrank();
 
@@ -1382,8 +1428,9 @@ contract DigitalWillTest is Test {
         assertEq(mockNFT.ownerOf(nftTokenId), _beneficiary, "Should own NFT");
 
         // Verify contract completed
+        (,, DigitalWillFactory.ContractState willState,) = factory.getWillInfo(_grantor);
         assertEq(
-            uint256(digitalWill.state()), uint256(DigitalWill.ContractState.COMPLETED), "Contract should be completed"
+            uint256(willState), uint256(DigitalWillFactory.ContractState.COMPLETED), "Contract should be completed"
         );
     }
 
@@ -1392,9 +1439,9 @@ contract DigitalWillTest is Test {
         // Setup: Deposit multiple ETH assets to same beneficiary
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
-        digitalWill.depositETH{value: 2 ether}(_beneficiary);
-        digitalWill.depositETH{value: 3 ether}(_beneficiary);
+        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositETH{value: 2 ether}(_beneficiary);
+        factory.depositETH{value: 3 ether}(_beneficiary);
         vm.stopPrank();
 
         // Make contract claimable
@@ -1404,9 +1451,9 @@ contract DigitalWillTest is Test {
 
         // Claim each asset individually
         vm.startPrank(_beneficiary);
-        digitalWill.claimSpecificAsset(0);
-        digitalWill.claimSpecificAsset(1);
-        digitalWill.claimSpecificAsset(2);
+        factory.claimAsset(_grantor, 0);
+        factory.claimAsset(_grantor, 1);
+        factory.claimAsset(_grantor, 2);
         vm.stopPrank();
 
         // Verify total received
@@ -1418,7 +1465,7 @@ contract DigitalWillTest is Test {
         // Setup: Deposit an asset
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositETH{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
         // Warp to exact boundary
@@ -1426,29 +1473,26 @@ contract DigitalWillTest is Test {
 
         // Should be able to claim
         vm.prank(_beneficiary);
-        digitalWill.claimSpecificAsset(0);
+        factory.claimAsset(_grantor, 0);
 
-        (,,,,, bool claimed) = digitalWill.assets(0);
+        (,,,,, bool claimed) = factory.getAsset(_grantor, 0);
         assertTrue(claimed, "Asset should be claimed at exact boundary");
     }
 
     // isClaimable Tests
 
     function testIsClaimableReturnsTrueWhenStateIsClaimable() public {
-        // Set state to CLAIMABLE
-        vm.store(
-            address(digitalWill),
-            bytes32(uint256(2)), // slot 2 for state
-            bytes32(uint256(1)) // ContractState.CLAIMABLE
-        );
+        // Make the will claimable by warping time
+        vm.warp(block.timestamp + 30 days + 1 seconds);
+        factory.updateState(_grantor);
 
-        bool result = digitalWill.isClaimable();
+        bool result = factory.isClaimable(_grantor);
         assertTrue(result, "Should return true when state is CLAIMABLE");
     }
 
     function testIsClaimableReturnsFalseWhenActiveAndHeartbeatNotExpired() public view {
         // State is ACTIVE (default), and we're still within heartbeat interval
-        bool result = digitalWill.isClaimable();
+        bool result = factory.isClaimable(_grantor);
         assertFalse(result, "Should return false when ACTIVE and heartbeat not expired");
     }
 
@@ -1456,7 +1500,7 @@ contract DigitalWillTest is Test {
         // State is ACTIVE, advance time beyond heartbeat interval
         vm.warp(block.timestamp + 30 days + 1 seconds);
 
-        bool result = digitalWill.isClaimable();
+        bool result = factory.isClaimable(_grantor);
         assertTrue(result, "Should return true when ACTIVE and heartbeat expired");
     }
 
@@ -1464,43 +1508,43 @@ contract DigitalWillTest is Test {
         // Test at exact boundary (lastCheckIn + heartbeatInterval)
         vm.warp(block.timestamp + 30 days);
 
-        bool result = digitalWill.isClaimable();
+        bool result = factory.isClaimable(_grantor);
         assertTrue(result, "Should return true at exact heartbeat boundary");
     }
 
     function testIsClaimableReturnsFalseWhenCompleted() public {
         // Set state to COMPLETED
         vm.store(
-            address(digitalWill),
+            address(factory),
             bytes32(uint256(2)), // slot 2 for state
             bytes32(uint256(2)) // ContractState.COMPLETED
         );
 
-        bool result = digitalWill.isClaimable();
+        bool result = factory.isClaimable(_grantor);
         assertFalse(result, "Should return false when state is COMPLETED");
     }
 
     function testIsClaimableAfterCheckIn() public {
         // First check that it's not claimable
-        assertFalse(digitalWill.isClaimable(), "Should not be claimable initially");
+        assertFalse(factory.isClaimable(_grantor), "Should not be claimable initially");
 
         // Warp time to make it claimable
         vm.warp(block.timestamp + 30 days + 1 seconds);
-        assertTrue(digitalWill.isClaimable(), "Should be claimable after heartbeat expired");
+        assertTrue(factory.isClaimable(_grantor), "Should be claimable after heartbeat expired");
 
         // Check in to reset timer
         vm.prank(_grantor);
-        digitalWill.checkIn();
+        factory.checkIn();
 
         // Should no longer be claimable
-        assertFalse(digitalWill.isClaimable(), "Should not be claimable after check-in");
+        assertFalse(factory.isClaimable(_grantor), "Should not be claimable after check-in");
     }
 
     function testIsClaimableJustBeforeHeartbeatExpires() public {
         // Advance time to 1 second before expiration
         vm.warp(block.timestamp + 30 days - 1 seconds);
 
-        bool result = digitalWill.isClaimable();
+        bool result = factory.isClaimable(_grantor);
         assertFalse(result, "Should return false just before heartbeat expires");
     }
 
@@ -1508,35 +1552,35 @@ contract DigitalWillTest is Test {
 
     function testUpdateStateChangesActiveToClaimableWhenHeartbeatExpired() public {
         // Verify initial state is ACTIVE
-        assertEq(
-            uint256(digitalWill.state()), uint256(DigitalWill.ContractState.ACTIVE), "Initial state should be ACTIVE"
-        );
+        (,, DigitalWillFactory.ContractState willState,) = factory.getWillInfo(_grantor);
+        assertEq(uint256(willState), uint256(DigitalWillFactory.ContractState.ACTIVE), "Initial state should be ACTIVE");
 
         // Advance time beyond heartbeat interval
         vm.warp(block.timestamp + 30 days + 1 seconds);
 
         // Call updateState
-        digitalWill.updateState();
+        factory.updateState(_grantor);
 
         // Verify state changed to CLAIMABLE
+        (,, willState,) = factory.getWillInfo(_grantor);
         assertEq(
-            uint256(digitalWill.state()),
-            uint256(DigitalWill.ContractState.CLAIMABLE),
+            uint256(willState),
+            uint256(DigitalWillFactory.ContractState.CLAIMABLE),
             "State should be CLAIMABLE after update"
         );
     }
 
     function testUpdateStateDoesNotChangeStateWhenHeartbeatNotExpired() public {
         // Verify initial state is ACTIVE
-        assertEq(
-            uint256(digitalWill.state()), uint256(DigitalWill.ContractState.ACTIVE), "Initial state should be ACTIVE"
-        );
+        (,, DigitalWillFactory.ContractState willState,) = factory.getWillInfo(_grantor);
+        assertEq(uint256(willState), uint256(DigitalWillFactory.ContractState.ACTIVE), "Initial state should be ACTIVE");
 
         // Call updateState (heartbeat not expired)
-        digitalWill.updateState();
+        factory.updateState(_grantor);
 
         // Verify state remains ACTIVE
-        assertEq(uint256(digitalWill.state()), uint256(DigitalWill.ContractState.ACTIVE), "State should remain ACTIVE");
+        (,, willState,) = factory.getWillInfo(_grantor);
+        assertEq(uint256(willState), uint256(DigitalWillFactory.ContractState.ACTIVE), "State should remain ACTIVE");
     }
 
     function testUpdateStateDoesNotChangeWhenAlreadyClaimable() public {
@@ -1544,37 +1588,53 @@ contract DigitalWillTest is Test {
         vm.warp(block.timestamp + 30 days + 1 seconds);
 
         // First call to updateState
-        digitalWill.updateState();
-        assertEq(
-            uint256(digitalWill.state()), uint256(DigitalWill.ContractState.CLAIMABLE), "State should be CLAIMABLE"
-        );
+        factory.updateState(_grantor);
+        (,, DigitalWillFactory.ContractState willState,) = factory.getWillInfo(_grantor);
+        assertEq(uint256(willState), uint256(DigitalWillFactory.ContractState.CLAIMABLE), "State should be CLAIMABLE");
 
         // Second call to updateState
-        digitalWill.updateState();
+        factory.updateState(_grantor);
 
         // Verify state remains CLAIMABLE
+        (,, willState,) = factory.getWillInfo(_grantor);
         assertEq(
-            uint256(digitalWill.state()), uint256(DigitalWill.ContractState.CLAIMABLE), "State should remain CLAIMABLE"
+            uint256(willState), uint256(DigitalWillFactory.ContractState.CLAIMABLE), "State should remain CLAIMABLE"
         );
     }
 
     function testUpdateStateDoesNotChangeWhenCompleted() public {
-        // Set state to COMPLETED
-        vm.store(
-            address(digitalWill),
-            bytes32(uint256(2)), // slot 2 for state
-            bytes32(uint256(2)) // ContractState.COMPLETED
+        // Setup: Deposit an asset
+        vm.startPrank(_grantor);
+        vm.deal(_grantor, 10 ether);
+        factory.depositETH{value: 1 ether}(_beneficiary);
+        vm.stopPrank();
+
+        // Make claimable
+        vm.warp(block.timestamp + 30 days + 1 seconds);
+        factory.updateState(_grantor);
+
+        // Claim the asset to complete the will
+        vm.prank(_beneficiary);
+        factory.claimAsset(_grantor, 0);
+
+        // Verify state is COMPLETED
+        (,, DigitalWillFactory.ContractState willState1,) = factory.getWillInfo(_grantor);
+        assertEq(
+            uint256(willState1),
+            uint256(DigitalWillFactory.ContractState.COMPLETED),
+            "State should be COMPLETED after claiming all assets"
         );
 
-        // Advance time beyond heartbeat interval
+        // Advance time beyond heartbeat interval again
         vm.warp(block.timestamp + 30 days + 1 seconds);
 
         // Call updateState
-        digitalWill.updateState();
+        factory.updateState(_grantor);
 
         // Verify state remains COMPLETED
+        (,, DigitalWillFactory.ContractState willState2,) = factory.getWillInfo(_grantor);
         assertEq(
-            uint256(digitalWill.state()), uint256(DigitalWill.ContractState.COMPLETED), "State should remain COMPLETED"
+            uint256(willState2), uint256(DigitalWillFactory.ContractState.COMPLETED), "State should remain COMPLETED"
         );
     }
 
@@ -1584,12 +1644,11 @@ contract DigitalWillTest is Test {
 
         // Call updateState as random user
         vm.prank(_randomUser);
-        digitalWill.updateState();
+        factory.updateState(_grantor);
 
         // Verify state changed to CLAIMABLE
-        assertEq(
-            uint256(digitalWill.state()), uint256(DigitalWill.ContractState.CLAIMABLE), "State should be CLAIMABLE"
-        );
+        (,, DigitalWillFactory.ContractState willState,) = factory.getWillInfo(_grantor);
+        assertEq(uint256(willState), uint256(DigitalWillFactory.ContractState.CLAIMABLE), "State should be CLAIMABLE");
     }
 
     function testUpdateStateAtExactHeartbeatBoundary() public {
@@ -1597,12 +1656,13 @@ contract DigitalWillTest is Test {
         vm.warp(block.timestamp + 30 days);
 
         // Call updateState
-        digitalWill.updateState();
+        factory.updateState(_grantor);
 
         // Verify state changed to CLAIMABLE
+        (,, DigitalWillFactory.ContractState willState,) = factory.getWillInfo(_grantor);
         assertEq(
-            uint256(digitalWill.state()),
-            uint256(DigitalWill.ContractState.CLAIMABLE),
+            uint256(willState),
+            uint256(DigitalWillFactory.ContractState.CLAIMABLE),
             "State should be CLAIMABLE at exact boundary"
         );
     }
@@ -1612,10 +1672,11 @@ contract DigitalWillTest is Test {
         vm.warp(block.timestamp + 30 days + 1 seconds);
 
         // First call
-        digitalWill.updateState();
+        factory.updateState(_grantor);
+        (,, DigitalWillFactory.ContractState willState,) = factory.getWillInfo(_grantor);
         assertEq(
-            uint256(digitalWill.state()),
-            uint256(DigitalWill.ContractState.CLAIMABLE),
+            uint256(willState),
+            uint256(DigitalWillFactory.ContractState.CLAIMABLE),
             "State should be CLAIMABLE after first call"
         );
 
@@ -1623,41 +1684,43 @@ contract DigitalWillTest is Test {
         vm.warp(block.timestamp + 10 days);
 
         // Second call
-        digitalWill.updateState();
+        factory.updateState(_grantor);
+        (,, willState,) = factory.getWillInfo(_grantor);
         assertEq(
-            uint256(digitalWill.state()),
-            uint256(DigitalWill.ContractState.CLAIMABLE),
+            uint256(willState),
+            uint256(DigitalWillFactory.ContractState.CLAIMABLE),
             "State should remain CLAIMABLE after second call"
         );
     }
 
     function testUpdateStateAfterMultipleCheckIns() public {
         // First check-in at deployment
-        assertEq(uint256(digitalWill.state()), uint256(DigitalWill.ContractState.ACTIVE), "Should start ACTIVE");
+        (,, DigitalWillFactory.ContractState willState,) = factory.getWillInfo(_grantor);
+        assertEq(uint256(willState), uint256(DigitalWillFactory.ContractState.ACTIVE), "Should start ACTIVE");
 
         // Advance time but not beyond heartbeat
         vm.warp(block.timestamp + 15 days);
 
         // Check in again
         vm.prank(_grantor);
-        digitalWill.checkIn();
+        factory.checkIn();
 
         // Update state should not change anything
-        digitalWill.updateState();
+        factory.updateState(_grantor);
+        (,, willState,) = factory.getWillInfo(_grantor);
         assertEq(
-            uint256(digitalWill.state()),
-            uint256(DigitalWill.ContractState.ACTIVE),
-            "Should remain ACTIVE after check-in"
+            uint256(willState), uint256(DigitalWillFactory.ContractState.ACTIVE), "Should remain ACTIVE after check-in"
         );
 
         // Now advance beyond new heartbeat interval
         vm.warp(block.timestamp + 30 days + 1 seconds);
 
         // Update state should now change to CLAIMABLE
-        digitalWill.updateState();
+        factory.updateState(_grantor);
+        (,, willState,) = factory.getWillInfo(_grantor);
         assertEq(
-            uint256(digitalWill.state()),
-            uint256(DigitalWill.ContractState.CLAIMABLE),
+            uint256(willState),
+            uint256(DigitalWillFactory.ContractState.CLAIMABLE),
             "Should be CLAIMABLE after expiration"
         );
     }
@@ -1668,38 +1731,40 @@ contract DigitalWillTest is Test {
         uint256 newInterval = 60 days;
 
         vm.prank(_randomUser);
-        vm.expectRevert("You are not the grantor");
-        digitalWill.extendHeartbeat(newInterval);
+        vm.expectRevert("Will does not exist");
+        factory.extendHeartbeat(newInterval);
     }
 
     function testExtendHeartbeatRevertsWhenNotActive() public {
         uint256 newInterval = 60 days;
 
-        // Set contract state to CLAIMABLE
-        vm.store(
-            address(digitalWill),
-            bytes32(uint256(2)), // slot 2 for state
-            bytes32(uint256(1)) // ContractState.CLAIMABLE
-        );
+        // Make the will claimable by warping time
+        vm.warp(block.timestamp + 30 days + 1 seconds);
+        factory.updateState(_grantor);
 
         vm.prank(_grantor);
-        vm.expectRevert("Contract must be active");
-        digitalWill.extendHeartbeat(newInterval);
+        vm.expectRevert("Will must be active");
+        factory.extendHeartbeat(newInterval);
     }
 
     function testExtendHeartbeatRevertsWhenCompleted() public {
         uint256 newInterval = 60 days;
 
-        // Set contract state to COMPLETED
-        vm.store(
-            address(digitalWill),
-            bytes32(uint256(2)), // slot 2 for state
-            bytes32(uint256(2)) // ContractState.COMPLETED
-        );
+        // Setup: Deposit an asset and complete the will
+        vm.startPrank(_grantor);
+        vm.deal(_grantor, 10 ether);
+        factory.depositETH{value: 1 ether}(_beneficiary);
+        vm.stopPrank();
+
+        // Make claimable and claim to complete
+        vm.warp(block.timestamp + 30 days + 1 seconds);
+        factory.updateState(_grantor);
+        vm.prank(_beneficiary);
+        factory.claimAsset(_grantor, 0);
 
         vm.prank(_grantor);
-        vm.expectRevert("Contract must be active");
-        digitalWill.extendHeartbeat(newInterval);
+        vm.expectRevert("Will must be active");
+        factory.extendHeartbeat(newInterval);
     }
 
     function testExtendHeartbeatRevertsWhenNewIntervalNotLonger() public {
@@ -1707,7 +1772,7 @@ contract DigitalWillTest is Test {
 
         vm.prank(_grantor);
         vm.expectRevert("New interval must be longer");
-        digitalWill.extendHeartbeat(shorterInterval);
+        factory.extendHeartbeat(shorterInterval);
     }
 
     function testExtendHeartbeatRevertsWhenNewIntervalEquals() public {
@@ -1715,18 +1780,19 @@ contract DigitalWillTest is Test {
 
         vm.prank(_grantor);
         vm.expectRevert("New interval must be longer");
-        digitalWill.extendHeartbeat(sameInterval);
+        factory.extendHeartbeat(sameInterval);
     }
 
     function testExtendHeartbeatSuccessfully() public {
         uint256 newInterval = 60 days;
-        uint256 initialInterval = digitalWill.heartbeatInterval();
+        (, uint256 initialInterval,,) = factory.getWillInfo(_grantor);
 
         vm.prank(_grantor);
-        digitalWill.extendHeartbeat(newInterval);
+        factory.extendHeartbeat(newInterval);
 
-        assertEq(digitalWill.heartbeatInterval(), newInterval, "Heartbeat interval should be updated");
-        assertGt(digitalWill.heartbeatInterval(), initialInterval, "New interval should be longer than initial");
+        (, uint256 updatedInterval,,) = factory.getWillInfo(_grantor);
+        assertEq(updatedInterval, newInterval, "Heartbeat interval should be updated");
+        assertGt(updatedInterval, initialInterval, "New interval should be longer than initial");
     }
 
     function testExtendHeartbeatEmitsEvent() public {
@@ -1736,7 +1802,7 @@ contract DigitalWillTest is Test {
         emit HeartbeatExtended(_grantor, newInterval);
 
         vm.prank(_grantor);
-        digitalWill.extendHeartbeat(newInterval);
+        factory.extendHeartbeat(newInterval);
     }
 
     function testExtendHeartbeatMultipleTimes() public {
@@ -1747,28 +1813,33 @@ contract DigitalWillTest is Test {
         vm.startPrank(_grantor);
 
         // First extension
-        digitalWill.extendHeartbeat(firstExtension);
-        assertEq(digitalWill.heartbeatInterval(), firstExtension, "First extension should be set");
+        factory.extendHeartbeat(firstExtension);
+        (, uint256 hbInterval1,,) = factory.getWillInfo(_grantor);
+        assertEq(hbInterval1, firstExtension, "First extension should be set");
 
         // Second extension
-        digitalWill.extendHeartbeat(secondExtension);
-        assertEq(digitalWill.heartbeatInterval(), secondExtension, "Second extension should be set");
+        factory.extendHeartbeat(secondExtension);
+        (, uint256 hbInterval2,,) = factory.getWillInfo(_grantor);
+        assertEq(hbInterval2, secondExtension, "Second extension should be set");
 
         // Third extension
-        digitalWill.extendHeartbeat(thirdExtension);
-        assertEq(digitalWill.heartbeatInterval(), thirdExtension, "Third extension should be set");
+        factory.extendHeartbeat(thirdExtension);
+        (, uint256 hbInterval3,,) = factory.getWillInfo(_grantor);
+        assertEq(hbInterval3, thirdExtension, "Third extension should be set");
 
         vm.stopPrank();
     }
 
     function testExtendHeartbeatDoesNotChangeLastCheckIn() public {
         uint256 newInterval = 60 days;
-        uint256 lastCheckInBefore = digitalWill.lastCheckIn();
+        (uint256 lastCheckInVal0,,,) = factory.getWillInfo(_grantor);
+        uint256 lastCheckInBefore = lastCheckInVal0;
 
         vm.prank(_grantor);
-        digitalWill.extendHeartbeat(newInterval);
+        factory.extendHeartbeat(newInterval);
 
-        uint256 lastCheckInAfter = digitalWill.lastCheckIn();
+        (uint256 lastCheckInVal1,,,) = factory.getWillInfo(_grantor);
+        uint256 lastCheckInAfter = lastCheckInVal1;
         assertEq(lastCheckInAfter, lastCheckInBefore, "lastCheckIn should not change when extending heartbeat");
     }
 
@@ -1776,34 +1847,34 @@ contract DigitalWillTest is Test {
         uint256 newInterval = 60 days;
 
         // Verify initial state is ACTIVE
-        assertEq(
-            uint256(digitalWill.state()), uint256(DigitalWill.ContractState.ACTIVE), "Initial state should be ACTIVE"
-        );
+        (,, DigitalWillFactory.ContractState willState,) = factory.getWillInfo(_grantor);
+        assertEq(uint256(willState), uint256(DigitalWillFactory.ContractState.ACTIVE), "Initial state should be ACTIVE");
 
         vm.prank(_grantor);
-        digitalWill.extendHeartbeat(newInterval);
+        factory.extendHeartbeat(newInterval);
 
         // Verify state is still ACTIVE
-        assertEq(uint256(digitalWill.state()), uint256(DigitalWill.ContractState.ACTIVE), "State should remain ACTIVE");
+        (,, willState,) = factory.getWillInfo(_grantor);
+        assertEq(uint256(willState), uint256(DigitalWillFactory.ContractState.ACTIVE), "State should remain ACTIVE");
     }
 
     function testExtendHeartbeatAndVerifyNewIntervalUsed() public {
         uint256 newInterval = 60 days;
 
         vm.prank(_grantor);
-        digitalWill.extendHeartbeat(newInterval);
+        factory.extendHeartbeat(newInterval);
 
         // Warp time to just before new interval expires
         vm.warp(block.timestamp + newInterval - 1 seconds);
 
         // Should not be claimable yet
-        assertFalse(digitalWill.isClaimable(), "Should not be claimable before new interval expires");
+        assertFalse(factory.isClaimable(_grantor), "Should not be claimable before new interval expires");
 
         // Warp to exactly new interval
         vm.warp(block.timestamp + 1 seconds);
 
         // Should now be claimable
-        assertTrue(digitalWill.isClaimable(), "Should be claimable after new interval expires");
+        assertTrue(factory.isClaimable(_grantor), "Should be claimable after new interval expires");
     }
 
     function testExtendHeartbeatAfterPartialInterval() public {
@@ -1813,44 +1884,46 @@ contract DigitalWillTest is Test {
         vm.warp(block.timestamp + 15 days);
 
         vm.prank(_grantor);
-        digitalWill.extendHeartbeat(newInterval);
+        factory.extendHeartbeat(newInterval);
 
         // Warp to original interval (30 days from start)
         vm.warp(block.timestamp + 15 days);
 
         // Should not be claimable yet (new interval is 60 days from original checkIn)
-        assertFalse(digitalWill.isClaimable(), "Should not be claimable at old interval");
+        assertFalse(factory.isClaimable(_grantor), "Should not be claimable at old interval");
 
         // Warp to new interval (60 days from start)
         vm.warp(block.timestamp + 30 days);
 
         // Should now be claimable
-        assertTrue(digitalWill.isClaimable(), "Should be claimable after new interval");
+        assertTrue(factory.isClaimable(_grantor), "Should be claimable after new interval");
     }
 
     function testExtendHeartbeatWithCheckInBetween() public {
         uint256 newInterval = 60 days;
 
         // First check in (implicit at deployment)
-        uint256 firstCheckIn = digitalWill.lastCheckIn();
+        (uint256 lastCheckInVal2,,,) = factory.getWillInfo(_grantor);
+        uint256 firstCheckIn = lastCheckInVal2;
 
         // Warp some time
         vm.warp(block.timestamp + 10 days);
 
         // Check in again
         vm.prank(_grantor);
-        digitalWill.checkIn();
-        uint256 secondCheckIn = digitalWill.lastCheckIn();
+        factory.checkIn();
+        (uint256 lastCheckInVal3,,,) = factory.getWillInfo(_grantor);
+        uint256 secondCheckIn = lastCheckInVal3;
 
         assertGt(secondCheckIn, firstCheckIn, "Second check-in should be later");
 
         // Extend heartbeat
         vm.prank(_grantor);
-        digitalWill.extendHeartbeat(newInterval);
+        factory.extendHeartbeat(newInterval);
 
         // Verify new interval applies from last check-in
         vm.warp(secondCheckIn + newInterval);
-        assertTrue(digitalWill.isClaimable(), "Should be claimable after new interval from last check-in");
+        assertTrue(factory.isClaimable(_grantor), "Should be claimable after new interval from last check-in");
     }
 
     function testExtendHeartbeatRevertsAfterHeartbeatExpires() public {
@@ -1860,42 +1933,42 @@ contract DigitalWillTest is Test {
         vm.warp(block.timestamp + 30 days + 1 seconds);
 
         // Update state to CLAIMABLE
-        digitalWill.updateState();
+        factory.updateState(_grantor);
 
         // Verify state is CLAIMABLE
-        assertEq(
-            uint256(digitalWill.state()), uint256(DigitalWill.ContractState.CLAIMABLE), "State should be CLAIMABLE"
-        );
+        (,, DigitalWillFactory.ContractState willState,) = factory.getWillInfo(_grantor);
+        assertEq(uint256(willState), uint256(DigitalWillFactory.ContractState.CLAIMABLE), "State should be CLAIMABLE");
 
         // Try to extend heartbeat after it expired
         vm.prank(_grantor);
-        vm.expectRevert("Contract must be active");
-        digitalWill.extendHeartbeat(newInterval);
+        vm.expectRevert("Will must be active");
+        factory.extendHeartbeat(newInterval);
     }
 
     function testExtendHeartbeatWithMaxInterval() public {
         uint256 maxInterval = 365 days * 10; // 10 years
 
         vm.prank(_grantor);
-        digitalWill.extendHeartbeat(maxInterval);
+        factory.extendHeartbeat(maxInterval);
 
-        assertEq(digitalWill.heartbeatInterval(), maxInterval, "Should be able to set very long interval");
+        (, uint256 hbInterval0,,) = factory.getWillInfo(_grantor);
+        assertEq(hbInterval0, maxInterval, "Should be able to set very long interval");
     }
 
     // getAssetCount Tests
 
     function testGetAssetCountWhenNoAssets() public view {
-        uint256 count = digitalWill.getAssetCount();
+        uint256 count = factory.getAssetCount(_grantor);
         assertEq(count, 0, "Asset count should be 0 when no assets deposited");
     }
 
     function testGetAssetCountAfterSingleETHDeposit() public {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositETH{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
-        uint256 count = digitalWill.getAssetCount();
+        uint256 count = factory.getAssetCount(_grantor);
         assertEq(count, 1, "Asset count should be 1 after one deposit");
     }
 
@@ -1904,11 +1977,11 @@ contract DigitalWillTest is Test {
         mockToken.mint(_grantor, depositAmount);
 
         vm.startPrank(_grantor);
-        mockToken.approve(address(digitalWill), depositAmount);
-        digitalWill.depositERC20(address(mockToken), depositAmount, _beneficiary);
+        mockToken.approve(address(factory), depositAmount);
+        factory.depositERC20(address(mockToken), depositAmount, _beneficiary);
         vm.stopPrank();
 
-        uint256 count = digitalWill.getAssetCount();
+        uint256 count = factory.getAssetCount(_grantor);
         assertEq(count, 1, "Asset count should be 1 after ERC20 deposit");
     }
 
@@ -1916,11 +1989,11 @@ contract DigitalWillTest is Test {
         uint256 tokenId = mockNFT.mint(_grantor);
 
         vm.startPrank(_grantor);
-        mockNFT.approve(address(digitalWill), tokenId);
-        digitalWill.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        mockNFT.approve(address(factory), tokenId);
+        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
         vm.stopPrank();
 
-        uint256 count = digitalWill.getAssetCount();
+        uint256 count = factory.getAssetCount(_grantor);
         assertEq(count, 1, "Asset count should be 1 after ERC721 deposit");
     }
 
@@ -1928,13 +2001,13 @@ contract DigitalWillTest is Test {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
 
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
-        digitalWill.depositETH{value: 2 ether}(_beneficiary);
-        digitalWill.depositETH{value: 3 ether}(_beneficiary);
+        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositETH{value: 2 ether}(_beneficiary);
+        factory.depositETH{value: 3 ether}(_beneficiary);
 
         vm.stopPrank();
 
-        uint256 count = digitalWill.getAssetCount();
+        uint256 count = factory.getAssetCount(_grantor);
         assertEq(count, 3, "Asset count should be 3 after three deposits");
     }
 
@@ -1943,22 +2016,22 @@ contract DigitalWillTest is Test {
         vm.deal(_grantor, 10 ether);
 
         // Deposit ETH
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositETH{value: 1 ether}(_beneficiary);
 
         // Deposit ERC20
         uint256 tokenAmount = 1000 * 10 ** 18;
         mockToken.mint(_grantor, tokenAmount);
-        mockToken.approve(address(digitalWill), tokenAmount);
-        digitalWill.depositERC20(address(mockToken), tokenAmount, _beneficiary);
+        mockToken.approve(address(factory), tokenAmount);
+        factory.depositERC20(address(mockToken), tokenAmount, _beneficiary);
 
         // Deposit ERC721
         uint256 nftTokenId = mockNFT.mint(_grantor);
-        mockNFT.approve(address(digitalWill), nftTokenId);
-        digitalWill.depositERC721(address(mockNFT), nftTokenId, _beneficiary);
+        mockNFT.approve(address(factory), nftTokenId);
+        factory.depositERC721(address(mockNFT), nftTokenId, _beneficiary);
 
         vm.stopPrank();
 
-        uint256 count = digitalWill.getAssetCount();
+        uint256 count = factory.getAssetCount(_grantor);
         assertEq(count, 3, "Asset count should be 3 after mixed asset deposits");
     }
 
@@ -1970,13 +2043,13 @@ contract DigitalWillTest is Test {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
 
-        digitalWill.depositETH{value: 1 ether}(beneficiary1);
-        digitalWill.depositETH{value: 2 ether}(beneficiary2);
-        digitalWill.depositETH{value: 3 ether}(beneficiary3);
+        factory.depositETH{value: 1 ether}(beneficiary1);
+        factory.depositETH{value: 2 ether}(beneficiary2);
+        factory.depositETH{value: 3 ether}(beneficiary3);
 
         vm.stopPrank();
 
-        uint256 count = digitalWill.getAssetCount();
+        uint256 count = factory.getAssetCount(_grantor);
         assertEq(count, 3, "Asset count should be 3 for all beneficiaries combined");
     }
 
@@ -1984,8 +2057,8 @@ contract DigitalWillTest is Test {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
 
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
-        digitalWill.depositETH{value: 2 ether}(_beneficiary);
+        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositETH{value: 2 ether}(_beneficiary);
 
         vm.stopPrank();
 
@@ -1994,9 +2067,9 @@ contract DigitalWillTest is Test {
 
         // Claim one asset
         vm.prank(_beneficiary);
-        digitalWill.claimSpecificAsset(0);
+        factory.claimAsset(_grantor, 0);
 
-        uint256 count = digitalWill.getAssetCount();
+        uint256 count = factory.getAssetCount(_grantor);
         assertEq(count, 2, "Asset count should remain 2 even after claiming one asset");
     }
 
@@ -2004,8 +2077,8 @@ contract DigitalWillTest is Test {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
 
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
-        digitalWill.depositETH{value: 2 ether}(_beneficiary);
+        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositETH{value: 2 ether}(_beneficiary);
 
         vm.stopPrank();
 
@@ -2014,11 +2087,11 @@ contract DigitalWillTest is Test {
 
         // Claim all assets
         vm.startPrank(_beneficiary);
-        digitalWill.claimSpecificAsset(0);
-        digitalWill.claimSpecificAsset(1);
+        factory.claimAsset(_grantor, 0);
+        factory.claimAsset(_grantor, 1);
         vm.stopPrank();
 
-        uint256 count = digitalWill.getAssetCount();
+        uint256 count = factory.getAssetCount(_grantor);
         assertEq(count, 2, "Asset count should remain 2 even after claiming all assets");
     }
 
@@ -2026,19 +2099,19 @@ contract DigitalWillTest is Test {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
 
-        uint256 count = digitalWill.getAssetCount();
+        uint256 count = factory.getAssetCount(_grantor);
         assertEq(count, 0, "Initial count should be 0");
 
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
-        count = digitalWill.getAssetCount();
+        factory.depositETH{value: 1 ether}(_beneficiary);
+        count = factory.getAssetCount(_grantor);
         assertEq(count, 1, "Count should be 1 after first deposit");
 
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
-        count = digitalWill.getAssetCount();
+        factory.depositETH{value: 1 ether}(_beneficiary);
+        count = factory.getAssetCount(_grantor);
         assertEq(count, 2, "Count should be 2 after second deposit");
 
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
-        count = digitalWill.getAssetCount();
+        factory.depositETH{value: 1 ether}(_beneficiary);
+        count = factory.getAssetCount(_grantor);
         assertEq(count, 3, "Count should be 3 after third deposit");
 
         vm.stopPrank();
@@ -2048,17 +2121,17 @@ contract DigitalWillTest is Test {
 
     function testGetBeneficiaryAssetsWhenNoBeneficiaryExists() public {
         address nonExistent = makeAddr("nonExistentBeneficiary");
-        uint256[] memory assets = digitalWill.getBeneficiaryAssets(nonExistent);
+        uint256[] memory assets = factory.getBeneficiaryAssets(_grantor, nonExistent);
         assertEq(assets.length, 0, "Should return empty array for beneficiary with no assets");
     }
 
     function testGetBeneficiaryAssetsAfterSingleETHDeposit() public {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositETH{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
-        uint256[] memory assets = digitalWill.getBeneficiaryAssets(_beneficiary);
+        uint256[] memory assets = factory.getBeneficiaryAssets(_grantor, _beneficiary);
         assertEq(assets.length, 1, "Beneficiary should have 1 asset");
         assertEq(assets[0], 0, "First asset index should be 0");
     }
@@ -2067,13 +2140,13 @@ contract DigitalWillTest is Test {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
 
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
-        digitalWill.depositETH{value: 2 ether}(_beneficiary);
-        digitalWill.depositETH{value: 3 ether}(_beneficiary);
+        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositETH{value: 2 ether}(_beneficiary);
+        factory.depositETH{value: 3 ether}(_beneficiary);
 
         vm.stopPrank();
 
-        uint256[] memory assets = digitalWill.getBeneficiaryAssets(_beneficiary);
+        uint256[] memory assets = factory.getBeneficiaryAssets(_grantor, _beneficiary);
         assertEq(assets.length, 3, "Beneficiary should have 3 assets");
         assertEq(assets[0], 0, "First asset index should be 0");
         assertEq(assets[1], 1, "Second asset index should be 1");
@@ -2085,22 +2158,22 @@ contract DigitalWillTest is Test {
         vm.deal(_grantor, 10 ether);
 
         // Deposit ETH
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositETH{value: 1 ether}(_beneficiary);
 
         // Deposit ERC20
         uint256 tokenAmount = 1000 * 10 ** 18;
         mockToken.mint(_grantor, tokenAmount);
-        mockToken.approve(address(digitalWill), tokenAmount);
-        digitalWill.depositERC20(address(mockToken), tokenAmount, _beneficiary);
+        mockToken.approve(address(factory), tokenAmount);
+        factory.depositERC20(address(mockToken), tokenAmount, _beneficiary);
 
         // Deposit ERC721
         uint256 nftTokenId = mockNFT.mint(_grantor);
-        mockNFT.approve(address(digitalWill), nftTokenId);
-        digitalWill.depositERC721(address(mockNFT), nftTokenId, _beneficiary);
+        mockNFT.approve(address(factory), nftTokenId);
+        factory.depositERC721(address(mockNFT), nftTokenId, _beneficiary);
 
         vm.stopPrank();
 
-        uint256[] memory assets = digitalWill.getBeneficiaryAssets(_beneficiary);
+        uint256[] memory assets = factory.getBeneficiaryAssets(_grantor, _beneficiary);
         assertEq(assets.length, 3, "Beneficiary should have 3 assets of different types");
         assertEq(assets[0], 0, "First asset index should be 0");
         assertEq(assets[1], 1, "Second asset index should be 1");
@@ -2116,30 +2189,30 @@ contract DigitalWillTest is Test {
         vm.deal(_grantor, 10 ether);
 
         // Deposit to beneficiary1
-        digitalWill.depositETH{value: 1 ether}(beneficiary1);
+        factory.depositETH{value: 1 ether}(beneficiary1);
 
         // Deposit to beneficiary2
-        digitalWill.depositETH{value: 2 ether}(beneficiary2);
-        digitalWill.depositETH{value: 2 ether}(beneficiary2);
+        factory.depositETH{value: 2 ether}(beneficiary2);
+        factory.depositETH{value: 2 ether}(beneficiary2);
 
         // Deposit to beneficiary3
-        digitalWill.depositETH{value: 3 ether}(beneficiary3);
+        factory.depositETH{value: 3 ether}(beneficiary3);
 
         vm.stopPrank();
 
         // Check beneficiary1
-        uint256[] memory assets1 = digitalWill.getBeneficiaryAssets(beneficiary1);
+        uint256[] memory assets1 = factory.getBeneficiaryAssets(_grantor, beneficiary1);
         assertEq(assets1.length, 1, "Beneficiary1 should have 1 asset");
         assertEq(assets1[0], 0, "Beneficiary1's asset should be at index 0");
 
         // Check beneficiary2
-        uint256[] memory assets2 = digitalWill.getBeneficiaryAssets(beneficiary2);
+        uint256[] memory assets2 = factory.getBeneficiaryAssets(_grantor, beneficiary2);
         assertEq(assets2.length, 2, "Beneficiary2 should have 2 assets");
         assertEq(assets2[0], 1, "Beneficiary2's first asset should be at index 1");
         assertEq(assets2[1], 2, "Beneficiary2's second asset should be at index 2");
 
         // Check beneficiary3
-        uint256[] memory assets3 = digitalWill.getBeneficiaryAssets(beneficiary3);
+        uint256[] memory assets3 = factory.getBeneficiaryAssets(_grantor, beneficiary3);
         assertEq(assets3.length, 1, "Beneficiary3 should have 1 asset");
         assertEq(assets3[0], 3, "Beneficiary3's asset should be at index 3");
     }
@@ -2148,9 +2221,9 @@ contract DigitalWillTest is Test {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
 
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
-        digitalWill.depositETH{value: 2 ether}(_beneficiary);
-        digitalWill.depositETH{value: 3 ether}(_beneficiary);
+        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositETH{value: 2 ether}(_beneficiary);
+        factory.depositETH{value: 3 ether}(_beneficiary);
 
         vm.stopPrank();
 
@@ -2159,9 +2232,9 @@ contract DigitalWillTest is Test {
 
         // Claim one asset
         vm.prank(_beneficiary);
-        digitalWill.claimSpecificAsset(0);
+        factory.claimAsset(_grantor, 0);
 
-        uint256[] memory assets = digitalWill.getBeneficiaryAssets(_beneficiary);
+        uint256[] memory assets = factory.getBeneficiaryAssets(_grantor, _beneficiary);
         assertEq(assets.length, 3, "Beneficiary should still have 3 asset indices even after claiming");
         assertEq(assets[0], 0, "First asset index should still be 0");
         assertEq(assets[1], 1, "Second asset index should still be 1");
@@ -2172,8 +2245,8 @@ contract DigitalWillTest is Test {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
 
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
-        digitalWill.depositETH{value: 2 ether}(_beneficiary);
+        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositETH{value: 2 ether}(_beneficiary);
 
         vm.stopPrank();
 
@@ -2182,11 +2255,11 @@ contract DigitalWillTest is Test {
 
         // Claim all assets
         vm.startPrank(_beneficiary);
-        digitalWill.claimSpecificAsset(0);
-        digitalWill.claimSpecificAsset(1);
+        factory.claimAsset(_grantor, 0);
+        factory.claimAsset(_grantor, 1);
         vm.stopPrank();
 
-        uint256[] memory assets = digitalWill.getBeneficiaryAssets(_beneficiary);
+        uint256[] memory assets = factory.getBeneficiaryAssets(_grantor, _beneficiary);
         assertEq(assets.length, 2, "Beneficiary should still have 2 asset indices even after claiming all");
     }
 
@@ -2198,23 +2271,23 @@ contract DigitalWillTest is Test {
         vm.deal(_grantor, 10 ether);
 
         // Interleave deposits between two beneficiaries
-        digitalWill.depositETH{value: 1 ether}(beneficiary1); // index 0
-        digitalWill.depositETH{value: 2 ether}(beneficiary2); // index 1
-        digitalWill.depositETH{value: 1 ether}(beneficiary1); // index 2
-        digitalWill.depositETH{value: 2 ether}(beneficiary2); // index 3
-        digitalWill.depositETH{value: 1 ether}(beneficiary1); // index 4
+        factory.depositETH{value: 1 ether}(beneficiary1); // index 0
+        factory.depositETH{value: 2 ether}(beneficiary2); // index 1
+        factory.depositETH{value: 1 ether}(beneficiary1); // index 2
+        factory.depositETH{value: 2 ether}(beneficiary2); // index 3
+        factory.depositETH{value: 1 ether}(beneficiary1); // index 4
 
         vm.stopPrank();
 
         // Check beneficiary1
-        uint256[] memory assets1 = digitalWill.getBeneficiaryAssets(beneficiary1);
+        uint256[] memory assets1 = factory.getBeneficiaryAssets(_grantor, beneficiary1);
         assertEq(assets1.length, 3, "Beneficiary1 should have 3 assets");
         assertEq(assets1[0], 0, "Beneficiary1's first asset should be at index 0");
         assertEq(assets1[1], 2, "Beneficiary1's second asset should be at index 2");
         assertEq(assets1[2], 4, "Beneficiary1's third asset should be at index 4");
 
         // Check beneficiary2
-        uint256[] memory assets2 = digitalWill.getBeneficiaryAssets(beneficiary2);
+        uint256[] memory assets2 = factory.getBeneficiaryAssets(_grantor, beneficiary2);
         assertEq(assets2.length, 2, "Beneficiary2 should have 2 assets");
         assertEq(assets2[0], 1, "Beneficiary2's first asset should be at index 1");
         assertEq(assets2[1], 3, "Beneficiary2's second asset should be at index 3");
@@ -2226,23 +2299,23 @@ contract DigitalWillTest is Test {
         // Deposit ERC20
         uint256 tokenAmount1 = 1000 * 10 ** 18;
         mockToken.mint(_grantor, tokenAmount1);
-        mockToken.approve(address(digitalWill), tokenAmount1);
-        digitalWill.depositERC20(address(mockToken), tokenAmount1, _beneficiary);
+        mockToken.approve(address(factory), tokenAmount1);
+        factory.depositERC20(address(mockToken), tokenAmount1, _beneficiary);
 
         // Deposit ERC721
         uint256 nftTokenId = mockNFT.mint(_grantor);
-        mockNFT.approve(address(digitalWill), nftTokenId);
-        digitalWill.depositERC721(address(mockNFT), nftTokenId, _beneficiary);
+        mockNFT.approve(address(factory), nftTokenId);
+        factory.depositERC721(address(mockNFT), nftTokenId, _beneficiary);
 
         // Deposit another ERC20
         uint256 tokenAmount2 = 2000 * 10 ** 18;
         mockToken.mint(_grantor, tokenAmount2);
-        mockToken.approve(address(digitalWill), tokenAmount2);
-        digitalWill.depositERC20(address(mockToken), tokenAmount2, _beneficiary);
+        mockToken.approve(address(factory), tokenAmount2);
+        factory.depositERC20(address(mockToken), tokenAmount2, _beneficiary);
 
         vm.stopPrank();
 
-        uint256[] memory assets = digitalWill.getBeneficiaryAssets(_beneficiary);
+        uint256[] memory assets = factory.getBeneficiaryAssets(_grantor, _beneficiary);
         assertEq(assets.length, 3, "Beneficiary should have 3 assets");
         assertEq(assets[0], 0, "First asset (ERC20) should be at index 0");
         assertEq(assets[1], 1, "Second asset (ERC721) should be at index 1");
@@ -2250,12 +2323,12 @@ contract DigitalWillTest is Test {
     }
 
     function testGetBeneficiaryAssetsEmptyAfterNoDeposit() public view {
-        uint256[] memory assets = digitalWill.getBeneficiaryAssets(_beneficiary);
+        uint256[] memory assets = factory.getBeneficiaryAssets(_grantor, _beneficiary);
         assertEq(assets.length, 0, "Beneficiary should have no assets initially");
     }
 
     function testGetBeneficiaryAssetsWithZeroAddress() public view {
-        uint256[] memory assets = digitalWill.getBeneficiaryAssets(address(0));
+        uint256[] memory assets = factory.getBeneficiaryAssets(_grantor, address(0));
         assertEq(assets.length, 0, "Zero address should have no assets");
     }
 
@@ -2268,21 +2341,21 @@ contract DigitalWillTest is Test {
         vm.deal(_grantor, 10 ether);
 
         // Only deposit to beneficiary1 and beneficiary2
-        digitalWill.depositETH{value: 1 ether}(beneficiary1);
-        digitalWill.depositETH{value: 2 ether}(beneficiary2);
+        factory.depositETH{value: 1 ether}(beneficiary1);
+        factory.depositETH{value: 2 ether}(beneficiary2);
 
         vm.stopPrank();
 
         // Check beneficiary1
-        uint256[] memory assets1 = digitalWill.getBeneficiaryAssets(beneficiary1);
+        uint256[] memory assets1 = factory.getBeneficiaryAssets(_grantor, beneficiary1);
         assertEq(assets1.length, 1, "Beneficiary1 should have 1 asset");
 
         // Check beneficiary2
-        uint256[] memory assets2 = digitalWill.getBeneficiaryAssets(beneficiary2);
+        uint256[] memory assets2 = factory.getBeneficiaryAssets(_grantor, beneficiary2);
         assertEq(assets2.length, 1, "Beneficiary2 should have 1 asset");
 
         // Check beneficiary3 (should have nothing)
-        uint256[] memory assets3 = digitalWill.getBeneficiaryAssets(beneficiary3);
+        uint256[] memory assets3 = factory.getBeneficiaryAssets(_grantor, beneficiary3);
         assertEq(assets3.length, 0, "Beneficiary3 should have no assets");
     }
 
@@ -2300,9 +2373,10 @@ contract DigitalWillTest is Test {
         vm.warp(block.timestamp + timeWarp);
 
         vm.prank(_grantor);
-        digitalWill.checkIn();
+        factory.checkIn();
 
-        assertEq(digitalWill.lastCheckIn(), block.timestamp, "lastCheckIn should match current timestamp");
+        (uint256 lastCheckInVal4,,,) = factory.getWillInfo(_grantor);
+        assertEq(lastCheckInVal4, block.timestamp, "lastCheckIn should match current timestamp");
     }
 
     // Fuzz Tests - depositETH
@@ -2314,11 +2388,11 @@ contract DigitalWillTest is Test {
         vm.startPrank(_grantor);
         vm.deal(_grantor, amount);
 
-        digitalWill.depositETH{value: amount}(_beneficiary);
+        factory.depositETH{value: amount}(_beneficiary);
 
         // Verify balance and storage
-        assertEq(address(digitalWill).balance, amount, "Contract balance should match deposit");
-        (,,, uint256 storedAmount,,) = digitalWill.assets(0);
+        assertEq(address(factory).balance, amount, "Contract balance should match deposit");
+        (,,, uint256 storedAmount,,) = factory.getAsset(_grantor, 0);
         assertEq(storedAmount, amount, "Stored amount should match");
 
         vm.stopPrank();
@@ -2334,14 +2408,14 @@ contract DigitalWillTest is Test {
 
         // Mint with specific token ID
         mockNFT.mintWithId(_grantor, tokenId);
-        mockNFT.approve(address(digitalWill), tokenId);
+        mockNFT.approve(address(factory), tokenId);
 
-        digitalWill.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
 
         // Verify storage
-        (,, uint256 storedTokenId,,,) = digitalWill.assets(0);
+        (,, uint256 storedTokenId,,,) = factory.getAsset(_grantor, 0);
         assertEq(storedTokenId, tokenId, "Token ID should match");
-        assertEq(mockNFT.ownerOf(tokenId), address(digitalWill), "Contract should own NFT");
+        assertEq(mockNFT.ownerOf(tokenId), address(factory), "Contract should own NFT");
 
         vm.stopPrank();
     }
@@ -2356,17 +2430,17 @@ contract DigitalWillTest is Test {
 
         // Mint and deposit to first beneficiary
         uint256 tokenId1 = mockNFT.mint(_grantor);
-        mockNFT.approve(address(digitalWill), tokenId1);
-        digitalWill.depositERC721(address(mockNFT), tokenId1, beneficiary1);
+        mockNFT.approve(address(factory), tokenId1);
+        factory.depositERC721(address(mockNFT), tokenId1, beneficiary1);
 
         // Mint and deposit to second beneficiary
         uint256 tokenId2 = mockNFT.mint(_grantor);
-        mockNFT.approve(address(digitalWill), tokenId2);
-        digitalWill.depositERC721(address(mockNFT), tokenId2, beneficiary2);
+        mockNFT.approve(address(factory), tokenId2);
+        factory.depositERC721(address(mockNFT), tokenId2, beneficiary2);
 
         // Verify storage
-        (,,,, address stored1,) = digitalWill.assets(0);
-        (,,,, address stored2,) = digitalWill.assets(1);
+        (,,,, address stored1,) = factory.getAsset(_grantor, 0);
+        (,,,, address stored2,) = factory.getAsset(_grantor, 1);
 
         assertEq(stored1, beneficiary1, "First beneficiary should match");
         assertEq(stored2, beneficiary2, "Second beneficiary should match");
@@ -2382,15 +2456,15 @@ contract DigitalWillTest is Test {
 
         for (uint256 i = 0; i < numTokens; i++) {
             uint256 tokenId = mockNFT.mint(_grantor);
-            mockNFT.approve(address(digitalWill), tokenId);
-            digitalWill.depositERC721(address(mockNFT), tokenId, _beneficiary);
+            mockNFT.approve(address(factory), tokenId);
+            factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
         }
 
         // Verify all tokens deposited
+        uint256[] memory nftAssetIndices = factory.getBeneficiaryAssets(_grantor, _beneficiary);
         for (uint256 i = 0; i < numTokens; i++) {
-            assertEq(mockNFT.ownerOf(i), address(digitalWill), "Contract should own all NFTs");
-            uint256 assetIndex = digitalWill.beneficiaryAssets(_beneficiary, i);
-            assertEq(assetIndex, i, "Asset indices should match");
+            assertEq(mockNFT.ownerOf(i), address(factory), "Contract should own all NFTs");
+            assertEq(nftAssetIndices[i], i, "Asset indices should match");
         }
 
         vm.stopPrank();
@@ -2405,13 +2479,13 @@ contract DigitalWillTest is Test {
         mockToken.mint(_grantor, amount);
 
         vm.startPrank(_grantor);
-        mockToken.approve(address(digitalWill), amount);
+        mockToken.approve(address(factory), amount);
 
-        digitalWill.depositERC20(address(mockToken), amount, _beneficiary);
+        factory.depositERC20(address(mockToken), amount, _beneficiary);
 
         // Verify balance and storage
-        assertEq(mockToken.balanceOf(address(digitalWill)), amount, "Contract balance should match deposit");
-        (,,, uint256 storedAmount,,) = digitalWill.assets(0);
+        assertEq(mockToken.balanceOf(address(factory)), amount, "Contract balance should match deposit");
+        (,,, uint256 storedAmount,,) = factory.getAsset(_grantor, 0);
         assertEq(storedAmount, amount, "Stored amount should match");
 
         vm.stopPrank();
@@ -2431,16 +2505,16 @@ contract DigitalWillTest is Test {
         vm.startPrank(_grantor);
 
         // Deposit to first beneficiary
-        mockToken.approve(address(digitalWill), amount1);
-        digitalWill.depositERC20(address(mockToken), amount1, beneficiary1);
+        mockToken.approve(address(factory), amount1);
+        factory.depositERC20(address(mockToken), amount1, beneficiary1);
 
         // Deposit to second beneficiary
-        mockToken.approve(address(digitalWill), amount2);
-        digitalWill.depositERC20(address(mockToken), amount2, beneficiary2);
+        mockToken.approve(address(factory), amount2);
+        factory.depositERC20(address(mockToken), amount2, beneficiary2);
 
         // Verify storage
-        (,,,, address stored1,) = digitalWill.assets(0);
-        (,,,, address stored2,) = digitalWill.assets(1);
+        (,,,, address stored1,) = factory.getAsset(_grantor, 0);
+        (,,,, address stored2,) = factory.getAsset(_grantor, 1);
 
         assertEq(stored1, beneficiary1, "First beneficiary should match");
         assertEq(stored2, beneficiary2, "Second beneficiary should match");
@@ -2460,18 +2534,18 @@ contract DigitalWillTest is Test {
         vm.startPrank(_grantor);
 
         for (uint256 i = 0; i < numDeposits; i++) {
-            mockToken.approve(address(digitalWill), depositAmount);
-            digitalWill.depositERC20(address(mockToken), depositAmount, _beneficiary);
+            mockToken.approve(address(factory), depositAmount);
+            factory.depositERC20(address(mockToken), depositAmount, _beneficiary);
         }
 
         // Verify all deposits
-        assertEq(mockToken.balanceOf(address(digitalWill)), totalAmount, "Contract should have all deposits");
+        assertEq(mockToken.balanceOf(address(factory)), totalAmount, "Contract should have all deposits");
 
+        uint256[] memory erc20AssetIndices = factory.getBeneficiaryAssets(_grantor, _beneficiary);
         for (uint256 i = 0; i < numDeposits; i++) {
-            (,,, uint256 storedAmount,,) = digitalWill.assets(i);
+            (,,, uint256 storedAmount,,) = factory.getAsset(_grantor, i);
             assertEq(storedAmount, depositAmount, "Each deposit amount should match");
-            uint256 assetIndex = digitalWill.beneficiaryAssets(_beneficiary, i);
-            assertEq(assetIndex, i, "Asset indices should match");
+            assertEq(erc20AssetIndices[i], i, "Asset indices should match");
         }
 
         vm.stopPrank();
@@ -2486,7 +2560,7 @@ contract DigitalWillTest is Test {
         vm.warp(block.timestamp + timeOffset);
 
         bool expectedResult = timeOffset >= 30 days;
-        bool actualResult = digitalWill.isClaimable();
+        bool actualResult = factory.isClaimable(_grantor);
 
         assertEq(actualResult, expectedResult, "isClaimable result should match expected based on time offset");
     }
@@ -2498,15 +2572,14 @@ contract DigitalWillTest is Test {
         vm.warp(block.timestamp + timeOffset);
 
         // Call updateState
-        digitalWill.updateState();
+        factory.updateState(_grantor);
 
         // Expected state
-        DigitalWill.ContractState expectedState =
-            timeOffset >= 30 days ? DigitalWill.ContractState.CLAIMABLE : DigitalWill.ContractState.ACTIVE;
+        DigitalWillFactory.ContractState expectedState =
+            timeOffset >= 30 days ? DigitalWillFactory.ContractState.CLAIMABLE : DigitalWillFactory.ContractState.ACTIVE;
 
-        assertEq(
-            uint256(digitalWill.state()), uint256(expectedState), "State should match expected based on time offset"
-        );
+        (,, DigitalWillFactory.ContractState willState,) = factory.getWillInfo(_grantor);
+        assertEq(uint256(willState), uint256(expectedState), "State should match expected based on time offset");
     }
 
     // FUZZ TESTS - claimSpecificAsset
@@ -2521,7 +2594,7 @@ contract DigitalWillTest is Test {
         vm.deal(_grantor, numAssets * 1 ether);
 
         for (uint256 i = 0; i < numAssets; i++) {
-            digitalWill.depositETH{value: 1 ether}(_beneficiary);
+            factory.depositETH{value: 1 ether}(_beneficiary);
         }
         vm.stopPrank();
 
@@ -2531,13 +2604,13 @@ contract DigitalWillTest is Test {
         // Claim all assets
         vm.startPrank(_beneficiary);
         for (uint256 i = 0; i < numAssets; i++) {
-            digitalWill.claimSpecificAsset(i);
+            factory.claimAsset(_grantor, i);
         }
         vm.stopPrank();
 
         // Verify all assets claimed
         for (uint256 i = 0; i < numAssets; i++) {
-            (,,,,, bool claimed) = digitalWill.assets(i);
+            (,,,,, bool claimed) = factory.getAsset(_grantor, i);
             assertTrue(claimed, "All assets should be claimed");
         }
 
@@ -2553,7 +2626,7 @@ contract DigitalWillTest is Test {
         // Setup: Deposit an asset
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositETH{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
         // Warp time
@@ -2561,9 +2634,9 @@ contract DigitalWillTest is Test {
 
         // Should be able to claim
         vm.prank(_beneficiary);
-        digitalWill.claimSpecificAsset(0);
+        factory.claimAsset(_grantor, 0);
 
-        (,,,,, bool claimed) = digitalWill.assets(0);
+        (,,,,, bool claimed) = factory.getAsset(_grantor, 0);
         assertTrue(claimed, "Asset should be claimable after time offset");
     }
 
@@ -2575,8 +2648,8 @@ contract DigitalWillTest is Test {
         // Setup: Deposit ERC20
         mockToken.mint(_grantor, amount);
         vm.startPrank(_grantor);
-        mockToken.approve(address(digitalWill), amount);
-        digitalWill.depositERC20(address(mockToken), amount, _beneficiary);
+        mockToken.approve(address(factory), amount);
+        factory.depositERC20(address(mockToken), amount, _beneficiary);
         vm.stopPrank();
 
         // Make contract claimable
@@ -2584,7 +2657,7 @@ contract DigitalWillTest is Test {
 
         // Claim
         vm.prank(_beneficiary);
-        digitalWill.claimSpecificAsset(0);
+        factory.claimAsset(_grantor, 0);
 
         // Verify
         assertEq(mockToken.balanceOf(_beneficiary), amount, "Beneficiary should receive correct amount");
@@ -2598,10 +2671,12 @@ contract DigitalWillTest is Test {
         newInterval = bound(newInterval, 30 days + 1, 365 days * 10);
 
         vm.prank(_grantor);
-        digitalWill.extendHeartbeat(newInterval);
+        factory.extendHeartbeat(newInterval);
 
-        assertEq(digitalWill.heartbeatInterval(), newInterval, "Heartbeat interval should be updated");
-        assertGt(digitalWill.heartbeatInterval(), 30 days, "New interval should be longer than initial");
+        (, uint256 hbInterval1,,) = factory.getWillInfo(_grantor);
+        assertEq(hbInterval1, newInterval, "Heartbeat interval should be updated");
+        (, uint256 hbInterval20,,) = factory.getWillInfo(_grantor);
+        assertGt(hbInterval20, 30 days, "New interval should be longer than initial");
     }
 
     // Fuzz Test: Verify extended heartbeat is enforced correctly
@@ -2610,15 +2685,15 @@ contract DigitalWillTest is Test {
         newInterval = bound(newInterval, 31 days, 365 days);
 
         vm.prank(_grantor);
-        digitalWill.extendHeartbeat(newInterval);
+        factory.extendHeartbeat(newInterval);
 
         // Warp to just before new interval expires
         vm.warp(block.timestamp + newInterval - 1 seconds);
-        assertFalse(digitalWill.isClaimable(), "Should not be claimable before new interval expires");
+        assertFalse(factory.isClaimable(_grantor), "Should not be claimable before new interval expires");
 
         // Warp to exactly new interval
         vm.warp(block.timestamp + 1 seconds);
-        assertTrue(digitalWill.isClaimable(), "Should be claimable after new interval expires");
+        assertTrue(factory.isClaimable(_grantor), "Should be claimable after new interval expires");
     }
 
     // Fuzz Test: Multiple extensions with increasing intervals
@@ -2633,9 +2708,10 @@ contract DigitalWillTest is Test {
         for (uint256 i = 0; i < numExtensions; i++) {
             // Each extension adds 30 days more
             uint256 newInterval = currentInterval + 30 days;
-            digitalWill.extendHeartbeat(newInterval);
+            factory.extendHeartbeat(newInterval);
 
-            assertEq(digitalWill.heartbeatInterval(), newInterval, "Interval should be updated");
+            (, uint256 hbInterval2,,) = factory.getWillInfo(_grantor);
+            assertEq(hbInterval2, newInterval, "Interval should be updated");
             currentInterval = newInterval;
         }
 
@@ -2643,7 +2719,8 @@ contract DigitalWillTest is Test {
 
         // Final interval should be initial + (numExtensions * 30 days)
         uint256 expectedFinalInterval = 30 days + (uint256(numExtensions) * 30 days);
-        assertEq(digitalWill.heartbeatInterval(), expectedFinalInterval, "Final interval should match expected");
+        (, uint256 hbInterval3,,) = factory.getWillInfo(_grantor);
+        assertEq(hbInterval3, expectedFinalInterval, "Final interval should match expected");
     }
 
     // Fuzz Test: Extend heartbeat at various times during initial interval
@@ -2657,13 +2734,15 @@ contract DigitalWillTest is Test {
         vm.warp(block.timestamp + timeOffset);
 
         vm.prank(_grantor);
-        digitalWill.extendHeartbeat(newInterval);
+        factory.extendHeartbeat(newInterval);
 
         // Verify interval is updated
-        assertEq(digitalWill.heartbeatInterval(), newInterval, "Heartbeat interval should be updated");
+        (, uint256 hbInterval4,,) = factory.getWillInfo(_grantor);
+        assertEq(hbInterval4, newInterval, "Heartbeat interval should be updated");
 
         // Verify lastCheckIn remains unchanged
-        assertEq(digitalWill.lastCheckIn(), block.timestamp - timeOffset, "lastCheckIn should not change");
+        (uint256 lastCheckInVal5,,,) = factory.getWillInfo(_grantor);
+        assertEq(lastCheckInVal5, block.timestamp - timeOffset, "lastCheckIn should not change");
     }
 
     // Fuzz Test: Verify invalid intervals revert
@@ -2673,7 +2752,7 @@ contract DigitalWillTest is Test {
 
         vm.prank(_grantor);
         vm.expectRevert("New interval must be longer");
-        digitalWill.extendHeartbeat(invalidInterval);
+        factory.extendHeartbeat(invalidInterval);
     }
 
     // Fuzz Test: Extend heartbeat with check-ins at various times
@@ -2690,22 +2769,24 @@ contract DigitalWillTest is Test {
 
         // Check in
         vm.prank(_grantor);
-        digitalWill.checkIn();
-        uint256 lastCheckInTime = digitalWill.lastCheckIn();
+        factory.checkIn();
+        (uint256 lastCheckInVal6,,,) = factory.getWillInfo(_grantor);
+        uint256 lastCheckInTime = lastCheckInVal6;
 
         // Warp to extension time
         vm.warp(block.timestamp + (extensionTime - checkInTime));
 
         // Extend heartbeat
         vm.prank(_grantor);
-        digitalWill.extendHeartbeat(newInterval);
+        factory.extendHeartbeat(newInterval);
 
         // Verify new interval applies from last check-in
-        assertEq(digitalWill.heartbeatInterval(), newInterval, "Interval should be updated");
+        (, uint256 hbInterval5,,) = factory.getWillInfo(_grantor);
+        assertEq(hbInterval5, newInterval, "Interval should be updated");
 
         // Warp to new interval from last check-in
         vm.warp(lastCheckInTime + newInterval);
-        assertTrue(digitalWill.isClaimable(), "Should be claimable after new interval from last check-in");
+        assertTrue(factory.isClaimable(_grantor), "Should be claimable after new interval from last check-in");
     }
 
     // FUZZ TESTS - getAssetCount
@@ -2719,12 +2800,12 @@ contract DigitalWillTest is Test {
         vm.deal(_grantor, uint256(numDeposits) * 1 ether);
 
         for (uint256 i = 0; i < numDeposits; i++) {
-            digitalWill.depositETH{value: 1 ether}(_beneficiary);
+            factory.depositETH{value: 1 ether}(_beneficiary);
         }
 
         vm.stopPrank();
 
-        uint256 count = digitalWill.getAssetCount();
+        uint256 count = factory.getAssetCount(_grantor);
         assertEq(count, numDeposits, "Asset count should match number of deposits");
     }
 
@@ -2739,13 +2820,13 @@ contract DigitalWillTest is Test {
         vm.startPrank(_grantor);
 
         for (uint256 i = 0; i < numDeposits; i++) {
-            mockToken.approve(address(digitalWill), amountPerDeposit);
-            digitalWill.depositERC20(address(mockToken), amountPerDeposit, _beneficiary);
+            mockToken.approve(address(factory), amountPerDeposit);
+            factory.depositERC20(address(mockToken), amountPerDeposit, _beneficiary);
         }
 
         vm.stopPrank();
 
-        uint256 count = digitalWill.getAssetCount();
+        uint256 count = factory.getAssetCount(_grantor);
         assertEq(count, numDeposits, "Asset count should match number of ERC20 deposits");
     }
 
@@ -2758,13 +2839,13 @@ contract DigitalWillTest is Test {
 
         for (uint256 i = 0; i < numDeposits; i++) {
             uint256 tokenId = mockNFT.mint(_grantor);
-            mockNFT.approve(address(digitalWill), tokenId);
-            digitalWill.depositERC721(address(mockNFT), tokenId, _beneficiary);
+            mockNFT.approve(address(factory), tokenId);
+            factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
         }
 
         vm.stopPrank();
 
-        uint256 count = digitalWill.getAssetCount();
+        uint256 count = factory.getAssetCount(_grantor);
         assertEq(count, numDeposits, "Asset count should match number of ERC721 deposits");
     }
 
@@ -2780,28 +2861,28 @@ contract DigitalWillTest is Test {
 
         // Deposit ETH
         for (uint256 i = 0; i < numETH; i++) {
-            digitalWill.depositETH{value: 1 ether}(_beneficiary);
+            factory.depositETH{value: 1 ether}(_beneficiary);
         }
 
         // Deposit ERC20
         uint256 amountPerDeposit = 100 * 10 ** 18;
         mockToken.mint(_grantor, uint256(numERC20) * amountPerDeposit);
         for (uint256 i = 0; i < numERC20; i++) {
-            mockToken.approve(address(digitalWill), amountPerDeposit);
-            digitalWill.depositERC20(address(mockToken), amountPerDeposit, _beneficiary);
+            mockToken.approve(address(factory), amountPerDeposit);
+            factory.depositERC20(address(mockToken), amountPerDeposit, _beneficiary);
         }
 
         // Deposit ERC721
         for (uint256 i = 0; i < numERC721; i++) {
             uint256 tokenId = mockNFT.mint(_grantor);
-            mockNFT.approve(address(digitalWill), tokenId);
-            digitalWill.depositERC721(address(mockNFT), tokenId, _beneficiary);
+            mockNFT.approve(address(factory), tokenId);
+            factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
         }
 
         vm.stopPrank();
 
         uint256 expectedCount = uint256(numETH) + uint256(numERC20) + uint256(numERC721);
-        uint256 actualCount = digitalWill.getAssetCount();
+        uint256 actualCount = factory.getAssetCount(_grantor);
         assertEq(actualCount, expectedCount, "Asset count should match total deposits of all types");
     }
 
@@ -2816,7 +2897,7 @@ contract DigitalWillTest is Test {
         vm.deal(_grantor, uint256(numDeposits) * 1 ether);
 
         for (uint256 i = 0; i < numDeposits; i++) {
-            digitalWill.depositETH{value: 1 ether}(_beneficiary);
+            factory.depositETH{value: 1 ether}(_beneficiary);
         }
 
         vm.stopPrank();
@@ -2827,11 +2908,11 @@ contract DigitalWillTest is Test {
         // Claim some assets
         vm.startPrank(_beneficiary);
         for (uint256 i = 0; i < numClaims; i++) {
-            digitalWill.claimSpecificAsset(i);
+            factory.claimAsset(_grantor, i);
         }
         vm.stopPrank();
 
-        uint256 count = digitalWill.getAssetCount();
+        uint256 count = factory.getAssetCount(_grantor);
         assertEq(count, numDeposits, "Asset count should remain the same after claiming");
     }
 
@@ -2848,12 +2929,12 @@ contract DigitalWillTest is Test {
         vm.deal(_grantor, uint256(numAssets) * 1 ether);
 
         for (uint256 i = 0; i < numAssets; i++) {
-            digitalWill.depositETH{value: 1 ether}(_beneficiary);
+            factory.depositETH{value: 1 ether}(_beneficiary);
         }
 
         vm.stopPrank();
 
-        uint256[] memory assets = digitalWill.getBeneficiaryAssets(_beneficiary);
+        uint256[] memory assets = factory.getBeneficiaryAssets(_grantor, _beneficiary);
         assertEq(assets.length, numAssets, "Beneficiary should have correct number of assets");
 
         // Verify indices are correct
@@ -2880,7 +2961,7 @@ contract DigitalWillTest is Test {
             uint256 numAssetsForBeneficiary = (i % 3) + 1;
 
             for (uint256 j = 0; j < numAssetsForBeneficiary; j++) {
-                digitalWill.depositETH{value: 1 ether}(beneficiaries[i]);
+                factory.depositETH{value: 1 ether}(beneficiaries[i]);
                 assetIndex++;
             }
         }
@@ -2891,7 +2972,7 @@ contract DigitalWillTest is Test {
         assetIndex = 0;
         for (uint256 i = 0; i < numBeneficiaries; i++) {
             uint256 numAssetsForBeneficiary = (i % 3) + 1;
-            uint256[] memory assets = digitalWill.getBeneficiaryAssets(beneficiaries[i]);
+            uint256[] memory assets = factory.getBeneficiaryAssets(_grantor, beneficiaries[i]);
             assertEq(assets.length, numAssetsForBeneficiary, "Beneficiary should have correct number of assets");
 
             for (uint256 j = 0; j < numAssetsForBeneficiary; j++) {
@@ -2912,7 +2993,7 @@ contract DigitalWillTest is Test {
         vm.deal(_grantor, uint256(numAssets) * 1 ether);
 
         for (uint256 i = 0; i < numAssets; i++) {
-            digitalWill.depositETH{value: 1 ether}(_beneficiary);
+            factory.depositETH{value: 1 ether}(_beneficiary);
         }
 
         vm.stopPrank();
@@ -2923,11 +3004,11 @@ contract DigitalWillTest is Test {
         // Claim some assets
         vm.startPrank(_beneficiary);
         for (uint256 i = 0; i < numClaims; i++) {
-            digitalWill.claimSpecificAsset(i);
+            factory.claimAsset(_grantor, i);
         }
         vm.stopPrank();
 
-        uint256[] memory assets = digitalWill.getBeneficiaryAssets(_beneficiary);
+        uint256[] memory assets = factory.getBeneficiaryAssets(_grantor, _beneficiary);
         assertEq(assets.length, numAssets, "Beneficiary asset list should remain unchanged after claiming");
 
         // Verify all indices are still present
@@ -2953,12 +3034,12 @@ contract DigitalWillTest is Test {
         uint256 assetIndex = 0;
         for (uint256 i = 0; i < numRounds; i++) {
             // Deposit to beneficiary1
-            digitalWill.depositETH{value: 1 ether}(beneficiary1);
+            factory.depositETH{value: 1 ether}(beneficiary1);
             expectedIndicesBen1[i] = assetIndex;
             assetIndex++;
 
             // Deposit to beneficiary2
-            digitalWill.depositETH{value: 1 ether}(beneficiary2);
+            factory.depositETH{value: 1 ether}(beneficiary2);
             expectedIndicesBen2[i] = assetIndex;
             assetIndex++;
         }
@@ -2966,14 +3047,14 @@ contract DigitalWillTest is Test {
         vm.stopPrank();
 
         // Verify beneficiary1
-        uint256[] memory assets1 = digitalWill.getBeneficiaryAssets(beneficiary1);
+        uint256[] memory assets1 = factory.getBeneficiaryAssets(_grantor, beneficiary1);
         assertEq(assets1.length, numRounds, "Beneficiary1 should have correct number of assets");
         for (uint256 i = 0; i < numRounds; i++) {
             assertEq(assets1[i], expectedIndicesBen1[i], "Beneficiary1 asset indices should match");
         }
 
         // Verify beneficiary2
-        uint256[] memory assets2 = digitalWill.getBeneficiaryAssets(beneficiary2);
+        uint256[] memory assets2 = factory.getBeneficiaryAssets(_grantor, beneficiary2);
         assertEq(assets2.length, numRounds, "Beneficiary2 should have correct number of assets");
         for (uint256 i = 0; i < numRounds; i++) {
             assertEq(assets2[i], expectedIndicesBen2[i], "Beneficiary2 asset indices should match");
@@ -2994,27 +3075,27 @@ contract DigitalWillTest is Test {
 
         // Deposit ETH
         for (uint256 i = 0; i < numETH; i++) {
-            digitalWill.depositETH{value: 1 ether}(_beneficiary);
+            factory.depositETH{value: 1 ether}(_beneficiary);
         }
 
         // Deposit ERC20
         uint256 amountPerDeposit = 100 * 10 ** 18;
         mockToken.mint(_grantor, uint256(numERC20) * amountPerDeposit);
         for (uint256 i = 0; i < numERC20; i++) {
-            mockToken.approve(address(digitalWill), amountPerDeposit);
-            digitalWill.depositERC20(address(mockToken), amountPerDeposit, _beneficiary);
+            mockToken.approve(address(factory), amountPerDeposit);
+            factory.depositERC20(address(mockToken), amountPerDeposit, _beneficiary);
         }
 
         // Deposit ERC721
         for (uint256 i = 0; i < numERC721; i++) {
             uint256 tokenId = mockNFT.mint(_grantor);
-            mockNFT.approve(address(digitalWill), tokenId);
-            digitalWill.depositERC721(address(mockNFT), tokenId, _beneficiary);
+            mockNFT.approve(address(factory), tokenId);
+            factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
         }
 
         vm.stopPrank();
 
-        uint256[] memory assets = digitalWill.getBeneficiaryAssets(_beneficiary);
+        uint256[] memory assets = factory.getBeneficiaryAssets(_grantor, _beneficiary);
         assertEq(assets.length, totalAssets, "Beneficiary should have all assets regardless of type");
 
         // Verify indices are sequential

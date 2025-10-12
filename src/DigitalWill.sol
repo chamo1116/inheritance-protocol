@@ -247,6 +247,20 @@ contract DigitalWill is ReentrancyGuard {
         emit HeartbeatExtended(grantor, newInterval);
     }
 
+    /**
+     * Get total number of assets in the contract
+     */
+    function getAssetCount() external view returns (uint256) {
+        return assets.length;
+    }
+
+    /**
+     * Get assets for a specific beneficiary
+     */
+    function getBeneficiaryAssets(address beneficiary) external view returns (uint256[] memory) {
+        return beneficiaryAssets[beneficiary];
+    }
+
     // Internal functions
 
     /**

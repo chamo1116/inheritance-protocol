@@ -80,6 +80,12 @@ contract DigitalWillTest is Test {
         digitalWill = new DigitalWill(30 days);
     }
 
+    // Helper function to setup claimable state
+    function _setupClaimableState() internal {
+        // Warp time to make contract claimable
+        vm.warp(block.timestamp + 30 days + 1 seconds);
+    }
+
     // Deploy contract
     function testDeployContract() public view {
         assertEq(digitalWill.grantor(), _grantor, "Grantor should be set correctly");
@@ -884,12 +890,6 @@ contract DigitalWillTest is Test {
     }
 
     // claimSpecificAsset Tests
-
-    // Helper function to setup claimable state
-    function _setupClaimableState() internal {
-        // Warp time to make contract claimable
-        vm.warp(block.timestamp + 30 days + 1 seconds);
-    }
 
     // Test: Revert when contract not claimable (heartbeat not expired)
     function testClaimSpecificAssetRevertsWhenNotClaimable() public {
@@ -1882,6 +1882,410 @@ contract DigitalWillTest is Test {
         assertEq(digitalWill.heartbeatInterval(), maxInterval, "Should be able to set very long interval");
     }
 
+    // getAssetCount Tests
+
+    function testGetAssetCountWhenNoAssets() public view {
+        uint256 count = digitalWill.getAssetCount();
+        assertEq(count, 0, "Asset count should be 0 when no assets deposited");
+    }
+
+    function testGetAssetCountAfterSingleETHDeposit() public {
+        vm.startPrank(_grantor);
+        vm.deal(_grantor, 10 ether);
+        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        vm.stopPrank();
+
+        uint256 count = digitalWill.getAssetCount();
+        assertEq(count, 1, "Asset count should be 1 after one deposit");
+    }
+
+    function testGetAssetCountAfterSingleERC20Deposit() public {
+        uint256 depositAmount = 1000 * 10 ** 18;
+        mockToken.mint(_grantor, depositAmount);
+
+        vm.startPrank(_grantor);
+        mockToken.approve(address(digitalWill), depositAmount);
+        digitalWill.depositERC20(address(mockToken), depositAmount, _beneficiary);
+        vm.stopPrank();
+
+        uint256 count = digitalWill.getAssetCount();
+        assertEq(count, 1, "Asset count should be 1 after ERC20 deposit");
+    }
+
+    function testGetAssetCountAfterSingleERC721Deposit() public {
+        uint256 tokenId = mockNFT.mint(_grantor);
+
+        vm.startPrank(_grantor);
+        mockNFT.approve(address(digitalWill), tokenId);
+        digitalWill.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        vm.stopPrank();
+
+        uint256 count = digitalWill.getAssetCount();
+        assertEq(count, 1, "Asset count should be 1 after ERC721 deposit");
+    }
+
+    function testGetAssetCountAfterMultipleETHDeposits() public {
+        vm.startPrank(_grantor);
+        vm.deal(_grantor, 10 ether);
+
+        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        digitalWill.depositETH{value: 2 ether}(_beneficiary);
+        digitalWill.depositETH{value: 3 ether}(_beneficiary);
+
+        vm.stopPrank();
+
+        uint256 count = digitalWill.getAssetCount();
+        assertEq(count, 3, "Asset count should be 3 after three deposits");
+    }
+
+    function testGetAssetCountAfterMixedAssetTypes() public {
+        vm.startPrank(_grantor);
+        vm.deal(_grantor, 10 ether);
+
+        // Deposit ETH
+        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+
+        // Deposit ERC20
+        uint256 tokenAmount = 1000 * 10 ** 18;
+        mockToken.mint(_grantor, tokenAmount);
+        mockToken.approve(address(digitalWill), tokenAmount);
+        digitalWill.depositERC20(address(mockToken), tokenAmount, _beneficiary);
+
+        // Deposit ERC721
+        uint256 nftTokenId = mockNFT.mint(_grantor);
+        mockNFT.approve(address(digitalWill), nftTokenId);
+        digitalWill.depositERC721(address(mockNFT), nftTokenId, _beneficiary);
+
+        vm.stopPrank();
+
+        uint256 count = digitalWill.getAssetCount();
+        assertEq(count, 3, "Asset count should be 3 after mixed asset deposits");
+    }
+
+    function testGetAssetCountWithMultipleBeneficiaries() public {
+        address beneficiary1 = makeAddr("beneficiary1");
+        address beneficiary2 = makeAddr("beneficiary2");
+        address beneficiary3 = makeAddr("beneficiary3");
+
+        vm.startPrank(_grantor);
+        vm.deal(_grantor, 10 ether);
+
+        digitalWill.depositETH{value: 1 ether}(beneficiary1);
+        digitalWill.depositETH{value: 2 ether}(beneficiary2);
+        digitalWill.depositETH{value: 3 ether}(beneficiary3);
+
+        vm.stopPrank();
+
+        uint256 count = digitalWill.getAssetCount();
+        assertEq(count, 3, "Asset count should be 3 for all beneficiaries combined");
+    }
+
+    function testGetAssetCountAfterClaimingAssets() public {
+        vm.startPrank(_grantor);
+        vm.deal(_grantor, 10 ether);
+
+        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        digitalWill.depositETH{value: 2 ether}(_beneficiary);
+
+        vm.stopPrank();
+
+        // Make contract claimable
+        _setupClaimableState();
+
+        // Claim one asset
+        vm.prank(_beneficiary);
+        digitalWill.claimSpecificAsset(0);
+
+        uint256 count = digitalWill.getAssetCount();
+        assertEq(count, 2, "Asset count should remain 2 even after claiming one asset");
+    }
+
+    function testGetAssetCountAfterAllAssetsClaimed() public {
+        vm.startPrank(_grantor);
+        vm.deal(_grantor, 10 ether);
+
+        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        digitalWill.depositETH{value: 2 ether}(_beneficiary);
+
+        vm.stopPrank();
+
+        // Make contract claimable
+        _setupClaimableState();
+
+        // Claim all assets
+        vm.startPrank(_beneficiary);
+        digitalWill.claimSpecificAsset(0);
+        digitalWill.claimSpecificAsset(1);
+        vm.stopPrank();
+
+        uint256 count = digitalWill.getAssetCount();
+        assertEq(count, 2, "Asset count should remain 2 even after claiming all assets");
+    }
+
+    function testGetAssetCountIncrementalDeposits() public {
+        vm.startPrank(_grantor);
+        vm.deal(_grantor, 10 ether);
+
+        uint256 count = digitalWill.getAssetCount();
+        assertEq(count, 0, "Initial count should be 0");
+
+        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        count = digitalWill.getAssetCount();
+        assertEq(count, 1, "Count should be 1 after first deposit");
+
+        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        count = digitalWill.getAssetCount();
+        assertEq(count, 2, "Count should be 2 after second deposit");
+
+        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        count = digitalWill.getAssetCount();
+        assertEq(count, 3, "Count should be 3 after third deposit");
+
+        vm.stopPrank();
+    }
+
+    // getBeneficiaryAssets Tests
+
+    function testGetBeneficiaryAssetsWhenNoBeneficiaryExists() public {
+        address nonExistent = makeAddr("nonExistentBeneficiary");
+        uint256[] memory assets = digitalWill.getBeneficiaryAssets(nonExistent);
+        assertEq(assets.length, 0, "Should return empty array for beneficiary with no assets");
+    }
+
+    function testGetBeneficiaryAssetsAfterSingleETHDeposit() public {
+        vm.startPrank(_grantor);
+        vm.deal(_grantor, 10 ether);
+        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        vm.stopPrank();
+
+        uint256[] memory assets = digitalWill.getBeneficiaryAssets(_beneficiary);
+        assertEq(assets.length, 1, "Beneficiary should have 1 asset");
+        assertEq(assets[0], 0, "First asset index should be 0");
+    }
+
+    function testGetBeneficiaryAssetsAfterMultipleETHDeposits() public {
+        vm.startPrank(_grantor);
+        vm.deal(_grantor, 10 ether);
+
+        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        digitalWill.depositETH{value: 2 ether}(_beneficiary);
+        digitalWill.depositETH{value: 3 ether}(_beneficiary);
+
+        vm.stopPrank();
+
+        uint256[] memory assets = digitalWill.getBeneficiaryAssets(_beneficiary);
+        assertEq(assets.length, 3, "Beneficiary should have 3 assets");
+        assertEq(assets[0], 0, "First asset index should be 0");
+        assertEq(assets[1], 1, "Second asset index should be 1");
+        assertEq(assets[2], 2, "Third asset index should be 2");
+    }
+
+    function testGetBeneficiaryAssetsAfterMixedAssetTypes() public {
+        vm.startPrank(_grantor);
+        vm.deal(_grantor, 10 ether);
+
+        // Deposit ETH
+        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+
+        // Deposit ERC20
+        uint256 tokenAmount = 1000 * 10 ** 18;
+        mockToken.mint(_grantor, tokenAmount);
+        mockToken.approve(address(digitalWill), tokenAmount);
+        digitalWill.depositERC20(address(mockToken), tokenAmount, _beneficiary);
+
+        // Deposit ERC721
+        uint256 nftTokenId = mockNFT.mint(_grantor);
+        mockNFT.approve(address(digitalWill), nftTokenId);
+        digitalWill.depositERC721(address(mockNFT), nftTokenId, _beneficiary);
+
+        vm.stopPrank();
+
+        uint256[] memory assets = digitalWill.getBeneficiaryAssets(_beneficiary);
+        assertEq(assets.length, 3, "Beneficiary should have 3 assets of different types");
+        assertEq(assets[0], 0, "First asset index should be 0");
+        assertEq(assets[1], 1, "Second asset index should be 1");
+        assertEq(assets[2], 2, "Third asset index should be 2");
+    }
+
+    function testGetBeneficiaryAssetsWithMultipleBeneficiaries() public {
+        address beneficiary1 = makeAddr("beneficiary1");
+        address beneficiary2 = makeAddr("beneficiary2");
+        address beneficiary3 = makeAddr("beneficiary3");
+
+        vm.startPrank(_grantor);
+        vm.deal(_grantor, 10 ether);
+
+        // Deposit to beneficiary1
+        digitalWill.depositETH{value: 1 ether}(beneficiary1);
+
+        // Deposit to beneficiary2
+        digitalWill.depositETH{value: 2 ether}(beneficiary2);
+        digitalWill.depositETH{value: 2 ether}(beneficiary2);
+
+        // Deposit to beneficiary3
+        digitalWill.depositETH{value: 3 ether}(beneficiary3);
+
+        vm.stopPrank();
+
+        // Check beneficiary1
+        uint256[] memory assets1 = digitalWill.getBeneficiaryAssets(beneficiary1);
+        assertEq(assets1.length, 1, "Beneficiary1 should have 1 asset");
+        assertEq(assets1[0], 0, "Beneficiary1's asset should be at index 0");
+
+        // Check beneficiary2
+        uint256[] memory assets2 = digitalWill.getBeneficiaryAssets(beneficiary2);
+        assertEq(assets2.length, 2, "Beneficiary2 should have 2 assets");
+        assertEq(assets2[0], 1, "Beneficiary2's first asset should be at index 1");
+        assertEq(assets2[1], 2, "Beneficiary2's second asset should be at index 2");
+
+        // Check beneficiary3
+        uint256[] memory assets3 = digitalWill.getBeneficiaryAssets(beneficiary3);
+        assertEq(assets3.length, 1, "Beneficiary3 should have 1 asset");
+        assertEq(assets3[0], 3, "Beneficiary3's asset should be at index 3");
+    }
+
+    function testGetBeneficiaryAssetsAfterPartialClaim() public {
+        vm.startPrank(_grantor);
+        vm.deal(_grantor, 10 ether);
+
+        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        digitalWill.depositETH{value: 2 ether}(_beneficiary);
+        digitalWill.depositETH{value: 3 ether}(_beneficiary);
+
+        vm.stopPrank();
+
+        // Make contract claimable
+        _setupClaimableState();
+
+        // Claim one asset
+        vm.prank(_beneficiary);
+        digitalWill.claimSpecificAsset(0);
+
+        uint256[] memory assets = digitalWill.getBeneficiaryAssets(_beneficiary);
+        assertEq(assets.length, 3, "Beneficiary should still have 3 asset indices even after claiming");
+        assertEq(assets[0], 0, "First asset index should still be 0");
+        assertEq(assets[1], 1, "Second asset index should still be 1");
+        assertEq(assets[2], 2, "Third asset index should still be 2");
+    }
+
+    function testGetBeneficiaryAssetsAfterAllClaimed() public {
+        vm.startPrank(_grantor);
+        vm.deal(_grantor, 10 ether);
+
+        digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        digitalWill.depositETH{value: 2 ether}(_beneficiary);
+
+        vm.stopPrank();
+
+        // Make contract claimable
+        _setupClaimableState();
+
+        // Claim all assets
+        vm.startPrank(_beneficiary);
+        digitalWill.claimSpecificAsset(0);
+        digitalWill.claimSpecificAsset(1);
+        vm.stopPrank();
+
+        uint256[] memory assets = digitalWill.getBeneficiaryAssets(_beneficiary);
+        assertEq(assets.length, 2, "Beneficiary should still have 2 asset indices even after claiming all");
+    }
+
+    function testGetBeneficiaryAssetsInterleavedDeposits() public {
+        address beneficiary1 = makeAddr("beneficiary1");
+        address beneficiary2 = makeAddr("beneficiary2");
+
+        vm.startPrank(_grantor);
+        vm.deal(_grantor, 10 ether);
+
+        // Interleave deposits between two beneficiaries
+        digitalWill.depositETH{value: 1 ether}(beneficiary1); // index 0
+        digitalWill.depositETH{value: 2 ether}(beneficiary2); // index 1
+        digitalWill.depositETH{value: 1 ether}(beneficiary1); // index 2
+        digitalWill.depositETH{value: 2 ether}(beneficiary2); // index 3
+        digitalWill.depositETH{value: 1 ether}(beneficiary1); // index 4
+
+        vm.stopPrank();
+
+        // Check beneficiary1
+        uint256[] memory assets1 = digitalWill.getBeneficiaryAssets(beneficiary1);
+        assertEq(assets1.length, 3, "Beneficiary1 should have 3 assets");
+        assertEq(assets1[0], 0, "Beneficiary1's first asset should be at index 0");
+        assertEq(assets1[1], 2, "Beneficiary1's second asset should be at index 2");
+        assertEq(assets1[2], 4, "Beneficiary1's third asset should be at index 4");
+
+        // Check beneficiary2
+        uint256[] memory assets2 = digitalWill.getBeneficiaryAssets(beneficiary2);
+        assertEq(assets2.length, 2, "Beneficiary2 should have 2 assets");
+        assertEq(assets2[0], 1, "Beneficiary2's first asset should be at index 1");
+        assertEq(assets2[1], 3, "Beneficiary2's second asset should be at index 3");
+    }
+
+    function testGetBeneficiaryAssetsWithERC20AndERC721() public {
+        vm.startPrank(_grantor);
+
+        // Deposit ERC20
+        uint256 tokenAmount1 = 1000 * 10 ** 18;
+        mockToken.mint(_grantor, tokenAmount1);
+        mockToken.approve(address(digitalWill), tokenAmount1);
+        digitalWill.depositERC20(address(mockToken), tokenAmount1, _beneficiary);
+
+        // Deposit ERC721
+        uint256 nftTokenId = mockNFT.mint(_grantor);
+        mockNFT.approve(address(digitalWill), nftTokenId);
+        digitalWill.depositERC721(address(mockNFT), nftTokenId, _beneficiary);
+
+        // Deposit another ERC20
+        uint256 tokenAmount2 = 2000 * 10 ** 18;
+        mockToken.mint(_grantor, tokenAmount2);
+        mockToken.approve(address(digitalWill), tokenAmount2);
+        digitalWill.depositERC20(address(mockToken), tokenAmount2, _beneficiary);
+
+        vm.stopPrank();
+
+        uint256[] memory assets = digitalWill.getBeneficiaryAssets(_beneficiary);
+        assertEq(assets.length, 3, "Beneficiary should have 3 assets");
+        assertEq(assets[0], 0, "First asset (ERC20) should be at index 0");
+        assertEq(assets[1], 1, "Second asset (ERC721) should be at index 1");
+        assertEq(assets[2], 2, "Third asset (ERC20) should be at index 2");
+    }
+
+    function testGetBeneficiaryAssetsEmptyAfterNoDeposit() public view {
+        uint256[] memory assets = digitalWill.getBeneficiaryAssets(_beneficiary);
+        assertEq(assets.length, 0, "Beneficiary should have no assets initially");
+    }
+
+    function testGetBeneficiaryAssetsWithZeroAddress() public view {
+        uint256[] memory assets = digitalWill.getBeneficiaryAssets(address(0));
+        assertEq(assets.length, 0, "Zero address should have no assets");
+    }
+
+    function testGetBeneficiaryAssetsIsolationBetweenBeneficiaries() public {
+        address beneficiary1 = makeAddr("beneficiary1");
+        address beneficiary2 = makeAddr("beneficiary2");
+        address beneficiary3 = makeAddr("beneficiary3");
+
+        vm.startPrank(_grantor);
+        vm.deal(_grantor, 10 ether);
+
+        // Only deposit to beneficiary1 and beneficiary2
+        digitalWill.depositETH{value: 1 ether}(beneficiary1);
+        digitalWill.depositETH{value: 2 ether}(beneficiary2);
+
+        vm.stopPrank();
+
+        // Check beneficiary1
+        uint256[] memory assets1 = digitalWill.getBeneficiaryAssets(beneficiary1);
+        assertEq(assets1.length, 1, "Beneficiary1 should have 1 asset");
+
+        // Check beneficiary2
+        uint256[] memory assets2 = digitalWill.getBeneficiaryAssets(beneficiary2);
+        assertEq(assets2.length, 1, "Beneficiary2 should have 1 asset");
+
+        // Check beneficiary3 (should have nothing)
+        uint256[] memory assets3 = digitalWill.getBeneficiaryAssets(beneficiary3);
+        assertEq(assets3.length, 0, "Beneficiary3 should have no assets");
+    }
+
     // ===========================================
     // FUZZ TESTS
     // ===========================================
@@ -2105,9 +2509,7 @@ contract DigitalWillTest is Test {
         );
     }
 
-    // ===========================================
     // FUZZ TESTS - claimSpecificAsset
-    // ===========================================
 
     // Fuzz Test: Claim with various asset indices
     function testFuzzClaimSpecificAssetWithVariousIndices(uint256 numAssets) public {
@@ -2188,9 +2590,7 @@ contract DigitalWillTest is Test {
         assertEq(mockToken.balanceOf(_beneficiary), amount, "Beneficiary should receive correct amount");
     }
 
-    // ===========================================
     // FUZZ TESTS - extendHeartbeat
-    // ===========================================
 
     // Fuzz Test: Extend heartbeat with various valid intervals
     function testFuzzExtendHeartbeatWithVariousIntervals(uint256 newInterval) public {
@@ -2306,5 +2706,320 @@ contract DigitalWillTest is Test {
         // Warp to new interval from last check-in
         vm.warp(lastCheckInTime + newInterval);
         assertTrue(digitalWill.isClaimable(), "Should be claimable after new interval from last check-in");
+    }
+
+    // FUZZ TESTS - getAssetCount
+
+    // Fuzz Test: getAssetCount with various numbers of ETH deposits
+    function testFuzzGetAssetCountWithVariousETHDeposits(uint8 numDeposits) public {
+        // Bound to reasonable number (0-50)
+        numDeposits = uint8(bound(numDeposits, 0, 50));
+
+        vm.startPrank(_grantor);
+        vm.deal(_grantor, uint256(numDeposits) * 1 ether);
+
+        for (uint256 i = 0; i < numDeposits; i++) {
+            digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        }
+
+        vm.stopPrank();
+
+        uint256 count = digitalWill.getAssetCount();
+        assertEq(count, numDeposits, "Asset count should match number of deposits");
+    }
+
+    // Fuzz Test: getAssetCount with various numbers of ERC20 deposits
+    function testFuzzGetAssetCountWithVariousERC20Deposits(uint8 numDeposits) public {
+        // Bound to reasonable number (0-50)
+        numDeposits = uint8(bound(numDeposits, 0, 50));
+
+        uint256 amountPerDeposit = 100 * 10 ** 18;
+        mockToken.mint(_grantor, uint256(numDeposits) * amountPerDeposit);
+
+        vm.startPrank(_grantor);
+
+        for (uint256 i = 0; i < numDeposits; i++) {
+            mockToken.approve(address(digitalWill), amountPerDeposit);
+            digitalWill.depositERC20(address(mockToken), amountPerDeposit, _beneficiary);
+        }
+
+        vm.stopPrank();
+
+        uint256 count = digitalWill.getAssetCount();
+        assertEq(count, numDeposits, "Asset count should match number of ERC20 deposits");
+    }
+
+    // Fuzz Test: getAssetCount with various numbers of ERC721 deposits
+    function testFuzzGetAssetCountWithVariousERC721Deposits(uint8 numDeposits) public {
+        // Bound to reasonable number (0-50)
+        numDeposits = uint8(bound(numDeposits, 0, 50));
+
+        vm.startPrank(_grantor);
+
+        for (uint256 i = 0; i < numDeposits; i++) {
+            uint256 tokenId = mockNFT.mint(_grantor);
+            mockNFT.approve(address(digitalWill), tokenId);
+            digitalWill.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        }
+
+        vm.stopPrank();
+
+        uint256 count = digitalWill.getAssetCount();
+        assertEq(count, numDeposits, "Asset count should match number of ERC721 deposits");
+    }
+
+    // Fuzz Test: getAssetCount with mixed asset types
+    function testFuzzGetAssetCountWithMixedAssets(uint8 numETH, uint8 numERC20, uint8 numERC721) public {
+        // Bound each type to reasonable numbers
+        numETH = uint8(bound(numETH, 0, 20));
+        numERC20 = uint8(bound(numERC20, 0, 20));
+        numERC721 = uint8(bound(numERC721, 0, 20));
+
+        vm.startPrank(_grantor);
+        vm.deal(_grantor, uint256(numETH) * 1 ether);
+
+        // Deposit ETH
+        for (uint256 i = 0; i < numETH; i++) {
+            digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        }
+
+        // Deposit ERC20
+        uint256 amountPerDeposit = 100 * 10 ** 18;
+        mockToken.mint(_grantor, uint256(numERC20) * amountPerDeposit);
+        for (uint256 i = 0; i < numERC20; i++) {
+            mockToken.approve(address(digitalWill), amountPerDeposit);
+            digitalWill.depositERC20(address(mockToken), amountPerDeposit, _beneficiary);
+        }
+
+        // Deposit ERC721
+        for (uint256 i = 0; i < numERC721; i++) {
+            uint256 tokenId = mockNFT.mint(_grantor);
+            mockNFT.approve(address(digitalWill), tokenId);
+            digitalWill.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        }
+
+        vm.stopPrank();
+
+        uint256 expectedCount = uint256(numETH) + uint256(numERC20) + uint256(numERC721);
+        uint256 actualCount = digitalWill.getAssetCount();
+        assertEq(actualCount, expectedCount, "Asset count should match total deposits of all types");
+    }
+
+    // Fuzz Test: getAssetCount remains constant after claiming
+    function testFuzzGetAssetCountAfterClaiming(uint8 numDeposits, uint8 numClaims) public {
+        // Bound deposits to reasonable number (1-20)
+        numDeposits = uint8(bound(numDeposits, 1, 20));
+        // Bound claims to not exceed deposits
+        numClaims = uint8(bound(numClaims, 0, numDeposits));
+
+        vm.startPrank(_grantor);
+        vm.deal(_grantor, uint256(numDeposits) * 1 ether);
+
+        for (uint256 i = 0; i < numDeposits; i++) {
+            digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        }
+
+        vm.stopPrank();
+
+        // Make contract claimable
+        _setupClaimableState();
+
+        // Claim some assets
+        vm.startPrank(_beneficiary);
+        for (uint256 i = 0; i < numClaims; i++) {
+            digitalWill.claimSpecificAsset(i);
+        }
+        vm.stopPrank();
+
+        uint256 count = digitalWill.getAssetCount();
+        assertEq(count, numDeposits, "Asset count should remain the same after claiming");
+    }
+
+    // ===========================================
+    // FUZZ TESTS - getBeneficiaryAssets
+    // ===========================================
+
+    // Fuzz Test: getBeneficiaryAssets with various numbers of assets for single beneficiary
+    function testFuzzGetBeneficiaryAssetsWithVariousAssetCounts(uint8 numAssets) public {
+        // Bound to reasonable number (0-50)
+        numAssets = uint8(bound(numAssets, 0, 50));
+
+        vm.startPrank(_grantor);
+        vm.deal(_grantor, uint256(numAssets) * 1 ether);
+
+        for (uint256 i = 0; i < numAssets; i++) {
+            digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        }
+
+        vm.stopPrank();
+
+        uint256[] memory assets = digitalWill.getBeneficiaryAssets(_beneficiary);
+        assertEq(assets.length, numAssets, "Beneficiary should have correct number of assets");
+
+        // Verify indices are correct
+        for (uint256 i = 0; i < numAssets; i++) {
+            assertEq(assets[i], i, "Asset indices should be sequential");
+        }
+    }
+
+    // Fuzz Test: getBeneficiaryAssets with multiple beneficiaries
+    function testFuzzGetBeneficiaryAssetsWithMultipleBeneficiaries(uint8 numBeneficiaries) public {
+        // Bound to reasonable number (1-10)
+        numBeneficiaries = uint8(bound(numBeneficiaries, 1, 10));
+
+        address[] memory beneficiaries = new address[](numBeneficiaries);
+        uint256 assetIndex = 0;
+
+        vm.startPrank(_grantor);
+        vm.deal(_grantor, uint256(numBeneficiaries) * 3 ether);
+
+        for (uint256 i = 0; i < numBeneficiaries; i++) {
+            beneficiaries[i] = makeAddr(string(abi.encodePacked("beneficiary", i)));
+
+            // Each beneficiary gets a random number of assets (1-3)
+            uint256 numAssetsForBeneficiary = (i % 3) + 1;
+
+            for (uint256 j = 0; j < numAssetsForBeneficiary; j++) {
+                digitalWill.depositETH{value: 1 ether}(beneficiaries[i]);
+                assetIndex++;
+            }
+        }
+
+        vm.stopPrank();
+
+        // Verify each beneficiary has correct assets
+        assetIndex = 0;
+        for (uint256 i = 0; i < numBeneficiaries; i++) {
+            uint256 numAssetsForBeneficiary = (i % 3) + 1;
+            uint256[] memory assets = digitalWill.getBeneficiaryAssets(beneficiaries[i]);
+            assertEq(assets.length, numAssetsForBeneficiary, "Beneficiary should have correct number of assets");
+
+            for (uint256 j = 0; j < numAssetsForBeneficiary; j++) {
+                assertEq(assets[j], assetIndex, "Asset index should match");
+                assetIndex++;
+            }
+        }
+    }
+
+    // Fuzz Test: getBeneficiaryAssets persists after claiming
+    function testFuzzGetBeneficiaryAssetsAfterClaiming(uint8 numAssets, uint8 numClaims) public {
+        // Bound assets to reasonable number (1-20)
+        numAssets = uint8(bound(numAssets, 1, 20));
+        // Bound claims to not exceed assets
+        numClaims = uint8(bound(numClaims, 0, numAssets));
+
+        vm.startPrank(_grantor);
+        vm.deal(_grantor, uint256(numAssets) * 1 ether);
+
+        for (uint256 i = 0; i < numAssets; i++) {
+            digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        }
+
+        vm.stopPrank();
+
+        // Make contract claimable
+        _setupClaimableState();
+
+        // Claim some assets
+        vm.startPrank(_beneficiary);
+        for (uint256 i = 0; i < numClaims; i++) {
+            digitalWill.claimSpecificAsset(i);
+        }
+        vm.stopPrank();
+
+        uint256[] memory assets = digitalWill.getBeneficiaryAssets(_beneficiary);
+        assertEq(assets.length, numAssets, "Beneficiary asset list should remain unchanged after claiming");
+
+        // Verify all indices are still present
+        for (uint256 i = 0; i < numAssets; i++) {
+            assertEq(assets[i], i, "Asset indices should remain sequential");
+        }
+    }
+
+    // Fuzz Test: getBeneficiaryAssets with interleaved deposits
+    function testFuzzGetBeneficiaryAssetsInterleavedDeposits(uint8 numRounds) public {
+        // Bound to reasonable number of rounds (1-10)
+        numRounds = uint8(bound(numRounds, 1, 10));
+
+        address beneficiary1 = makeAddr("beneficiary1");
+        address beneficiary2 = makeAddr("beneficiary2");
+
+        uint256[] memory expectedIndicesBen1 = new uint256[](numRounds);
+        uint256[] memory expectedIndicesBen2 = new uint256[](numRounds);
+
+        vm.startPrank(_grantor);
+        vm.deal(_grantor, uint256(numRounds) * 3 ether);
+
+        uint256 assetIndex = 0;
+        for (uint256 i = 0; i < numRounds; i++) {
+            // Deposit to beneficiary1
+            digitalWill.depositETH{value: 1 ether}(beneficiary1);
+            expectedIndicesBen1[i] = assetIndex;
+            assetIndex++;
+
+            // Deposit to beneficiary2
+            digitalWill.depositETH{value: 1 ether}(beneficiary2);
+            expectedIndicesBen2[i] = assetIndex;
+            assetIndex++;
+        }
+
+        vm.stopPrank();
+
+        // Verify beneficiary1
+        uint256[] memory assets1 = digitalWill.getBeneficiaryAssets(beneficiary1);
+        assertEq(assets1.length, numRounds, "Beneficiary1 should have correct number of assets");
+        for (uint256 i = 0; i < numRounds; i++) {
+            assertEq(assets1[i], expectedIndicesBen1[i], "Beneficiary1 asset indices should match");
+        }
+
+        // Verify beneficiary2
+        uint256[] memory assets2 = digitalWill.getBeneficiaryAssets(beneficiary2);
+        assertEq(assets2.length, numRounds, "Beneficiary2 should have correct number of assets");
+        for (uint256 i = 0; i < numRounds; i++) {
+            assertEq(assets2[i], expectedIndicesBen2[i], "Beneficiary2 asset indices should match");
+        }
+    }
+
+    // Fuzz Test: getBeneficiaryAssets with mixed asset types
+    function testFuzzGetBeneficiaryAssetsWithMixedTypes(uint8 numETH, uint8 numERC20, uint8 numERC721) public {
+        // Bound each type to reasonable numbers
+        numETH = uint8(bound(numETH, 0, 15));
+        numERC20 = uint8(bound(numERC20, 0, 15));
+        numERC721 = uint8(bound(numERC721, 0, 15));
+
+        uint256 totalAssets = uint256(numETH) + uint256(numERC20) + uint256(numERC721);
+
+        vm.startPrank(_grantor);
+        vm.deal(_grantor, uint256(numETH) * 1 ether);
+
+        // Deposit ETH
+        for (uint256 i = 0; i < numETH; i++) {
+            digitalWill.depositETH{value: 1 ether}(_beneficiary);
+        }
+
+        // Deposit ERC20
+        uint256 amountPerDeposit = 100 * 10 ** 18;
+        mockToken.mint(_grantor, uint256(numERC20) * amountPerDeposit);
+        for (uint256 i = 0; i < numERC20; i++) {
+            mockToken.approve(address(digitalWill), amountPerDeposit);
+            digitalWill.depositERC20(address(mockToken), amountPerDeposit, _beneficiary);
+        }
+
+        // Deposit ERC721
+        for (uint256 i = 0; i < numERC721; i++) {
+            uint256 tokenId = mockNFT.mint(_grantor);
+            mockNFT.approve(address(digitalWill), tokenId);
+            digitalWill.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        }
+
+        vm.stopPrank();
+
+        uint256[] memory assets = digitalWill.getBeneficiaryAssets(_beneficiary);
+        assertEq(assets.length, totalAssets, "Beneficiary should have all assets regardless of type");
+
+        // Verify indices are sequential
+        for (uint256 i = 0; i < totalAssets; i++) {
+            assertEq(assets[i], i, "Asset indices should be sequential");
+        }
     }
 }

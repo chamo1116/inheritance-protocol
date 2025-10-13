@@ -80,6 +80,8 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
 
     event HeartbeatExtended(address indexed grantor, uint256 newInterval);
 
+    event EmergencyWithdraw(address indexed grantor, uint256 assetsReturned);
+
     // Modifiers
     modifier willExists() {
         require(wills[msg.sender].state != ContractState.INACTIVE, "Will does not exist");
@@ -280,6 +282,46 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
         require(newInterval > will.heartbeatInterval, "New interval must be longer");
         will.heartbeatInterval = newInterval;
         emit HeartbeatExtended(msg.sender, newInterval);
+    }
+
+    /**
+     * Emergency withdraw - allows grantor to reclaim all unclaimed assets
+     * This cancels the will and returns all assets to the grantor
+     */
+    function emergencyWithdraw() external nonReentrant willExists {
+        Will storage will = wills[msg.sender];
+        require(will.state != ContractState.COMPLETED, "Will already completed");
+
+        uint256 assetsReturned = 0;
+
+        // Loop through all assets and return unclaimed ones to grantor
+        for (uint256 i = 0; i < will.assets.length; i++) {
+            Asset storage asset = will.assets[i];
+
+            // Skip already claimed assets
+            if (asset.claimed) {
+                continue;
+            }
+
+            // Transfer asset back to grantor based on type
+            if (asset.assetType == AssetType.ETH) {
+                (bool success,) = payable(msg.sender).call{value: asset.amount}("");
+                require(success, "ETH transfer failed");
+            } else if (asset.assetType == AssetType.ERC20) {
+                IERC20(asset.tokenAddress).safeTransfer(msg.sender, asset.amount);
+            } else if (asset.assetType == AssetType.ERC721) {
+                IERC721(asset.tokenAddress).safeTransferFrom(address(this), msg.sender, asset.tokenId);
+            }
+
+            // Mark asset as claimed
+            asset.claimed = true;
+            assetsReturned++;
+        }
+
+        // Set will state to COMPLETED
+        will.state = ContractState.COMPLETED;
+
+        emit EmergencyWithdraw(msg.sender, assetsReturned);
     }
 
     /**

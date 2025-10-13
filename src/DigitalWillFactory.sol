@@ -6,8 +6,10 @@ import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver {
+contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownable {
     using SafeERC20 for IERC20;
 
     // Contract state
@@ -46,6 +48,9 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver {
 
     // Storage
     mapping(address => Will) private wills;
+
+    // Constructor
+    constructor() Ownable(msg.sender) {}
 
     // Events
     event WillCreated(address indexed grantor, uint256 heartbeatInterval);
@@ -123,7 +128,7 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver {
     /**
      * Create a new will
      */
-    function createWill(uint256 _heartbeatInterval) external {
+    function createWill(uint256 _heartbeatInterval) external whenNotPaused {
         require(wills[msg.sender].state == ContractState.INACTIVE, "Will already exists");
         require(_heartbeatInterval > 0, "Heartbeat interval must be greater than 0");
 
@@ -138,7 +143,7 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver {
     /**
      * Check-in function to reset the inactivity timer
      */
-    function checkIn() external willExists willActive {
+    function checkIn() external whenNotPaused willExists willActive {
         Will storage will = wills[msg.sender];
         will.lastCheckIn = block.timestamp;
 
@@ -148,7 +153,7 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver {
     /**
      * Deposit ETH function
      */
-    function depositETH(address _beneficiary) external payable willExists willActive {
+    function depositETH(address _beneficiary) external payable whenNotPaused willExists willActive {
         require(msg.value > 0, "Must send ETH");
         require(_beneficiary != address(0), "Invalid beneficiary address");
 
@@ -183,6 +188,7 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver {
      */
     function depositERC20(address _tokenAddress, uint256 _amount, address _beneficiary)
         external
+        whenNotPaused
         willExists
         willActive
     {
@@ -216,6 +222,7 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver {
      */
     function depositERC721(address _tokenAddress, uint256 _tokenId, address _beneficiary)
         external
+        whenNotPaused
         willExists
         willActive
     {
@@ -247,7 +254,12 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver {
     /**
      * Claim a specific asset from a grantor's will
      */
-    function claimAsset(address grantor, uint256 _assetIndex) external nonReentrant willNotCompleted(grantor) {
+    function claimAsset(address grantor, uint256 _assetIndex)
+        external
+        whenNotPaused
+        nonReentrant
+        willNotCompleted(grantor)
+    {
         updateState(grantor);
         Will storage will = wills[grantor];
         require(will.state == ContractState.CLAIMABLE, "Will not yet claimable");
@@ -263,7 +275,7 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver {
     /**
      * Extend the heartbeat interval (only grantor) and must be longer than current
      */
-    function extendHeartbeat(uint256 newInterval) external willExists willActive {
+    function extendHeartbeat(uint256 newInterval) external whenNotPaused willExists willActive {
         Will storage will = wills[msg.sender];
         require(newInterval > will.heartbeatInterval, "New interval must be longer");
         will.heartbeatInterval = newInterval;
@@ -313,6 +325,20 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver {
      */
     function getBeneficiaryAssets(address _grantor, address _beneficiary) external view returns (uint256[] memory) {
         return wills[_grantor].beneficiaryAssets[_beneficiary];
+    }
+
+    /**
+     * Pause the contract (only owner)
+     */
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    /**
+     * Unpause the contract (only owner)
+     */
+    function unpause() external onlyOwner {
+        _unpause();
     }
 
     // Internal functions

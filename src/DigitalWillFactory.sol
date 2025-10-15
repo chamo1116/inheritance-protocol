@@ -44,6 +44,7 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
         ContractState state;
         Asset[] assets;
         mapping(address => uint256[]) beneficiaryAssets;
+        uint256 unclaimedAssetsCount; // Track unclaimed assets to avoid loops
     }
 
     // Storage
@@ -174,6 +175,7 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
         );
 
         will.beneficiaryAssets[_beneficiary].push(assetIndex);
+        will.unclaimedAssetsCount++;
 
         emit AssetDeposited(msg.sender, AssetType.ETH, address(0), 0, msg.value, _beneficiary);
     }
@@ -215,6 +217,7 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
         );
 
         will.beneficiaryAssets[_beneficiary].push(assetIndex);
+        will.unclaimedAssetsCount++;
 
         emit AssetDeposited(msg.sender, AssetType.ERC20, _tokenAddress, 0, _amount, _beneficiary);
     }
@@ -233,7 +236,7 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
 
         IERC721 nft = IERC721(_tokenAddress);
         require(nft.ownerOf(_tokenId) == msg.sender, "Not the owner of NFT");
-        nft.transferFrom(msg.sender, address(this), _tokenId);
+        nft.safeTransferFrom(msg.sender, address(this), _tokenId);
 
         Will storage will = wills[msg.sender];
         uint256 assetIndex = will.assets.length;
@@ -249,6 +252,7 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
         );
 
         will.beneficiaryAssets[_beneficiary].push(assetIndex);
+        will.unclaimedAssetsCount++;
 
         emit AssetDeposited(msg.sender, AssetType.ERC721, _tokenAddress, _tokenId, 1, _beneficiary);
     }
@@ -287,15 +291,21 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
     /**
      * Emergency withdraw - allows grantor to reclaim all unclaimed assets
      * This cancels the will and returns all assets to the grantor
+     * Uses counter-based optimization to avoid processing all assets when not needed
+     * NOTE: Cannot be called once will becomes CLAIMABLE to prevent front-running beneficiary claims
      */
     function emergencyWithdraw() external nonReentrant willExists {
         Will storage will = wills[msg.sender];
         require(will.state != ContractState.COMPLETED, "Will already completed");
+        require(will.state != ContractState.CLAIMABLE, "Cannot withdraw from claimable will");
+        require(!isClaimable(msg.sender), "Will is claimable, cannot withdraw");
 
         uint256 assetsReturned = 0;
+        uint256 assetsToReturn = will.unclaimedAssetsCount;
 
         // Loop through all assets and return unclaimed ones to grantor
-        for (uint256 i = 0; i < will.assets.length; i++) {
+        // Optimization: break early when all unclaimed assets have been returned
+        for (uint256 i = 0; i < will.assets.length && assetsReturned < assetsToReturn; i++) {
             Asset storage asset = will.assets[i];
 
             // Skip already claimed assets
@@ -313,8 +323,9 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
                 IERC721(asset.tokenAddress).safeTransferFrom(address(this), msg.sender, asset.tokenId);
             }
 
-            // Mark asset as claimed
+            // Mark asset as claimed and decrement counter
             asset.claimed = true;
+            will.unclaimedAssetsCount--;
             assetsReturned++;
         }
 
@@ -405,6 +416,7 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
         }
 
         asset.claimed = true;
+        will.unclaimedAssetsCount--;
 
         emit AssetClaimed(
             grantor, asset.beneficiary, assetIndex, asset.assetType, asset.tokenAddress, asset.tokenId, asset.amount
@@ -413,18 +425,13 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
 
     /**
      * Internal function to check if will is completed
+     * Uses counter-based approach to avoid gas issues with large asset arrays
      */
     function _checkCompletion(address grantor) internal {
         Will storage will = wills[grantor];
-        bool allClaimed = true;
-        for (uint256 i = 0; i < will.assets.length; i++) {
-            if (!will.assets[i].claimed) {
-                allClaimed = false;
-                break;
-            }
-        }
 
-        if (allClaimed && will.assets.length > 0) {
+        // Check if all assets have been claimed using the counter
+        if (will.unclaimedAssetsCount == 0 && will.assets.length > 0) {
             will.state = ContractState.COMPLETED;
             emit WillCompleted(grantor);
         }

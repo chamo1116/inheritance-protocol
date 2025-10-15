@@ -263,20 +263,11 @@ contract EmergencyWithdrawTest is Test {
         (,,,,, bool claimed0) = factory.getAsset(_grantor, 0);
         assertTrue(claimed0, "First asset should be claimed");
 
-        uint256 grantorBalanceBefore = _grantor.balance;
-
-        // Emergency withdraw - should only return unclaimed assets
+        // Emergency withdraw should now REVERT because will is CLAIMABLE
+        // This prevents grantor from front-running remaining beneficiary claims
         vm.prank(_grantor);
+        vm.expectRevert("Cannot withdraw from claimable will");
         factory.emergencyWithdraw();
-
-        // Verify only unclaimed assets returned (2 + 3 = 5 ETH)
-        assertEq(_grantor.balance, grantorBalanceBefore + 5 ether, "Grantor should receive only unclaimed ETH");
-
-        // Verify assets status
-        (,,,,, bool claimedAfter1) = factory.getAsset(_grantor, 1);
-        (,,,,, bool claimedAfter2) = factory.getAsset(_grantor, 2);
-        assertTrue(claimedAfter1, "Asset 1 should now be claimed");
-        assertTrue(claimedAfter2, "Asset 2 should now be claimed");
     }
 
     function testEmergencyWithdrawWhileActive() public {
@@ -319,16 +310,36 @@ contract EmergencyWithdrawTest is Test {
         (,, DigitalWillFactory.ContractState stateBefore,) = factory.getWillInfo(_grantor);
         assertEq(uint256(stateBefore), uint256(DigitalWillFactory.ContractState.CLAIMABLE), "Will should be CLAIMABLE");
 
-        uint256 grantorBalanceBefore = _grantor.balance;
-
-        // Emergency withdraw while CLAIMABLE - grantor can still reclaim
+        // Emergency withdraw while CLAIMABLE should REVERT
+        // This prevents grantor from front-running beneficiary claims
         vm.prank(_grantor);
+        vm.expectRevert("Cannot withdraw from claimable will");
         factory.emergencyWithdraw();
+    }
 
-        // Verify withdrawal successful
-        assertEq(
-            _grantor.balance, grantorBalanceBefore + 5 ether, "Grantor should receive ETH back even when claimable"
-        );
+    function testEmergencyWithdrawRevertsWhenHeartbeatExpired() public {
+        // Deposit assets
+        vm.startPrank(_grantor);
+        vm.deal(_grantor, 10 ether);
+        factory.depositETH{value: 5 ether}(_beneficiary);
+        vm.stopPrank();
+
+        // Time travel past heartbeat WITHOUT updating state
+        // Will state is still ACTIVE but isClaimable() returns true
+        vm.warp(block.timestamp + 30 days + 1 seconds);
+
+        // Verify will state is still ACTIVE
+        (,, DigitalWillFactory.ContractState state,) = factory.getWillInfo(_grantor);
+        assertEq(uint256(state), uint256(DigitalWillFactory.ContractState.ACTIVE), "Will should still be ACTIVE");
+
+        // Verify isClaimable returns true
+        assertTrue(factory.isClaimable(_grantor), "Will should be claimable");
+
+        // Emergency withdraw should REVERT due to isClaimable() check
+        // This prevents front-running even if state hasn't been explicitly updated
+        vm.prank(_grantor);
+        vm.expectRevert("Will is claimable, cannot withdraw");
+        factory.emergencyWithdraw();
     }
 
     function testEmergencyWithdrawEmitsEvent() public {

@@ -94,6 +94,21 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
 
     event ContractBeneficiaryRevoked(address indexed grantor, address indexed beneficiary);
 
+    event BeneficiaryUpdated(
+        address indexed grantor, uint256 assetIndex, address oldBeneficiary, address newBeneficiary
+    );
+
+    event AssetRemoved(
+        address indexed grantor,
+        uint256 assetIndex,
+        AssetType assetType,
+        address tokenAddress,
+        uint256 tokenId,
+        uint256 amount
+    );
+
+    event HeartbeatModified(address indexed grantor, uint256 oldInterval, uint256 newInterval);
+
     // Modifiers
     modifier willExists() {
         require(wills[msg.sender].state != ContractState.INACTIVE, "Will does not exist");
@@ -297,6 +312,94 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
         require(newInterval > will.heartbeatInterval, "New interval must be longer");
         will.heartbeatInterval = newInterval;
         emit HeartbeatExtended(msg.sender, newInterval);
+    }
+
+    /**
+     * Update beneficiary for a specific asset
+     * Allows grantor to change beneficiary without withdrawing and re-depositing
+     * Can only be done when will is ACTIVE (not CLAIMABLE or COMPLETED)
+     */
+    function updateBeneficiary(uint256 _assetIndex, address _newBeneficiary)
+        external
+        whenNotPaused
+        willExists
+        willActive
+    {
+        Will storage will = wills[msg.sender];
+        require(_assetIndex < will.assets.length, "Asset index out of bounds");
+
+        Asset storage asset = will.assets[_assetIndex];
+        require(!asset.claimed, "Cannot update beneficiary for claimed asset");
+
+        address oldBeneficiary = asset.beneficiary;
+        require(oldBeneficiary != _newBeneficiary, "New beneficiary must be different");
+
+        _validateBeneficiary(_newBeneficiary);
+
+        asset.beneficiary = _newBeneficiary;
+
+        emit BeneficiaryUpdated(msg.sender, _assetIndex, oldBeneficiary, _newBeneficiary);
+    }
+
+    /**
+     * Remove a specific asset from the will and return it to grantor
+     * Allows partial modifications without canceling entire will
+     * Can only be done when will is ACTIVE (not CLAIMABLE or COMPLETED)
+     */
+    function removeAsset(uint256 _assetIndex) external nonReentrant whenNotPaused willExists willActive {
+        Will storage will = wills[msg.sender];
+        require(_assetIndex < will.assets.length, "Asset index out of bounds");
+
+        Asset storage asset = will.assets[_assetIndex];
+        require(!asset.claimed, "Asset already claimed");
+
+        // Store asset details for event before modifying
+        AssetType assetType = asset.assetType;
+        address tokenAddress = asset.tokenAddress;
+        uint256 tokenId = asset.tokenId;
+        uint256 amount = asset.amount;
+
+        // Transfer asset back to grantor
+        if (asset.assetType == AssetType.ETH) {
+            (bool success,) = payable(msg.sender).call{value: asset.amount}("");
+            require(success, "ETH transfer failed");
+        } else if (asset.assetType == AssetType.ERC20) {
+            IERC20(asset.tokenAddress).safeTransfer(msg.sender, asset.amount);
+        } else if (asset.assetType == AssetType.ERC721) {
+            IERC721(asset.tokenAddress).safeTransferFrom(address(this), msg.sender, asset.tokenId);
+            // Clear the deposited flag to allow re-deposit if needed
+            depositedERC721[msg.sender][asset.tokenAddress][asset.tokenId] = false;
+        }
+
+        // Mark asset as claimed to prevent future claims
+        asset.claimed = true;
+        will.unclaimedAssetsCount--;
+
+        emit AssetRemoved(msg.sender, _assetIndex, assetType, tokenAddress, tokenId, amount);
+    }
+
+    /**
+     * Modify the heartbeat interval (only grantor)
+     * More flexible than extendHeartbeat - allows both increase and decrease
+     * Minimum interval is 1 day to prevent abuse
+     * Can only be done when will is ACTIVE
+     */
+    function modifyHeartbeat(uint256 newInterval) external whenNotPaused willExists willActive {
+        Will storage will = wills[msg.sender];
+        uint256 oldInterval = will.heartbeatInterval;
+
+        require(newInterval != oldInterval, "New interval must be different");
+        require(newInterval >= 1 days, "Interval must be at least 1 day");
+
+        will.heartbeatInterval = newInterval;
+
+        // Reset lastCheckIn when reducing interval to give grantor fair time
+        // This prevents immediate claimability when reducing the interval
+        if (newInterval < oldInterval) {
+            will.lastCheckIn = block.timestamp;
+        }
+
+        emit HeartbeatModified(msg.sender, oldInterval, newInterval);
     }
 
     /**

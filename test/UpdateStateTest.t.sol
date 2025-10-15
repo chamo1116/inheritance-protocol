@@ -59,6 +59,12 @@ contract UpdateStateTest is Test {
         factory.createWill(30 days);
     }
 
+    // Helper function to accept beneficiary
+    function _acceptBeneficiary(address beneficiary, address grantor) internal {
+        vm.prank(beneficiary);
+        factory.acceptBeneficiary(grantor);
+    }
+
     // updateState tests
     function testUpdateStateChangesActiveToClaimableWhenHeartbeatExpired() public {
         // Verify initial state is ACTIVE
@@ -122,6 +128,9 @@ contract UpdateStateTest is Test {
         vm.deal(_grantor, 10 ether);
         factory.depositETH{value: 1 ether}(_beneficiary);
         vm.stopPrank();
+
+        // Beneficiary accepts designation
+        _acceptBeneficiary(_beneficiary, _grantor);
 
         // Make claimable
         vm.warp(block.timestamp + 30 days + 1 seconds);

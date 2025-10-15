@@ -53,6 +53,10 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
     // grantor => beneficiary => approved
     mapping(address => mapping(address => bool)) private approvedContractBeneficiaries;
 
+    // Mapping to track beneficiary acceptance status
+    // grantor => beneficiary => accepted
+    mapping(address => mapping(address => bool)) private beneficiaryAcceptance;
+
     // Mapping to track deposited ERC721 tokens to prevent duplicates
     // grantor => tokenAddress => tokenId => exists
     mapping(address => mapping(address => mapping(uint256 => bool))) private depositedERC721;
@@ -110,6 +114,10 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
     event HeartbeatModified(address indexed grantor, uint256 oldInterval, uint256 newInterval);
 
     event StateUpdated(address indexed grantor, ContractState newState, address indexed updater);
+
+    event BeneficiaryAccepted(address indexed grantor, address indexed beneficiary);
+
+    event BeneficiaryRejected(address indexed grantor, address indexed beneficiary);
 
     // Modifiers
     modifier willExists() {
@@ -291,6 +299,7 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
 
     /**
      * Claim a specific asset from a grantor's will
+     * Requires beneficiary to have explicitly accepted their designation
      */
     function claimAsset(address grantor, uint256 _assetIndex)
         external
@@ -305,6 +314,7 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
         Asset storage asset = will.assets[_assetIndex];
         require(asset.beneficiary == msg.sender, "Not the beneficiary");
         require(!asset.claimed, "Asset already claimed");
+        require(beneficiaryAcceptance[grantor][msg.sender], "Beneficiary must accept designation first");
 
         _transferAsset(grantor, _assetIndex);
         _checkCompletion(grantor);
@@ -559,6 +569,39 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
     }
 
     /**
+     * Accept beneficiary designation for a grantor's will
+     * Must be called by the beneficiary address itself
+     * Protects against address prediction attacks and confirms beneficiary can receive assets
+     */
+    function acceptBeneficiary(address _grantor) external {
+        require(wills[_grantor].state != ContractState.INACTIVE, "Will does not exist");
+        require(_isBeneficiaryOf(msg.sender, _grantor), "Not designated as beneficiary");
+        require(!beneficiaryAcceptance[_grantor][msg.sender], "Already accepted");
+
+        beneficiaryAcceptance[_grantor][msg.sender] = true;
+        emit BeneficiaryAccepted(_grantor, msg.sender);
+    }
+
+    /**
+     * Reject beneficiary designation for a grantor's will
+     * Allows beneficiaries to opt-out if they don't want the responsibility
+     */
+    function rejectBeneficiary(address _grantor) external {
+        require(wills[_grantor].state != ContractState.INACTIVE, "Will does not exist");
+        require(_isBeneficiaryOf(msg.sender, _grantor), "Not designated as beneficiary");
+
+        beneficiaryAcceptance[_grantor][msg.sender] = false;
+        emit BeneficiaryRejected(_grantor, msg.sender);
+    }
+
+    /**
+     * Check if a beneficiary has accepted their designation
+     */
+    function hasBeneficiaryAccepted(address _grantor, address _beneficiary) external view returns (bool) {
+        return beneficiaryAcceptance[_grantor][_beneficiary];
+    }
+
+    /**
      * Check if a beneficiary is approved (for contracts) or valid (for EOAs)
      */
     function isApprovedBeneficiary(address _grantor, address _beneficiary) external view returns (bool) {
@@ -585,6 +628,9 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
 
     /**
      * Check if an address is a contract
+     * NOTE: This check has a timing limitation - an address may become a contract after this check.
+     * The beneficiary acceptance requirement mitigates this by requiring the address to actively
+     * accept their designation, which prevents address prediction attacks.
      */
     function _isContract(address _account) internal view returns (bool) {
         // Check if the address has code

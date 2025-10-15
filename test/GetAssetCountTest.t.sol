@@ -59,6 +59,12 @@ contract GetAssetCountTest is Test {
         factory.createWill(30 days);
     }
 
+    // Helper function to accept beneficiary
+    function _acceptBeneficiary(address beneficiary, address grantor) internal {
+        vm.prank(beneficiary);
+        factory.acceptBeneficiary(grantor);
+    }
+
     // Helper function to setup claimable state
     function _setupClaimableState() internal {
         // Warp time to make contract claimable
@@ -174,6 +180,9 @@ contract GetAssetCountTest is Test {
         // Make contract claimable
         _setupClaimableState();
 
+        // Beneficiary accepts designation
+        _acceptBeneficiary(_beneficiary, _grantor);
+
         // Claim one asset
         vm.prank(_beneficiary);
         factory.claimAsset(_grantor, 0);
@@ -190,6 +199,9 @@ contract GetAssetCountTest is Test {
         factory.depositETH{value: 2 ether}(_beneficiary);
 
         vm.stopPrank();
+
+        // Beneficiary accepts designation
+        _acceptBeneficiary(_beneficiary, _grantor);
 
         // Make contract claimable
         _setupClaimableState();
@@ -332,6 +344,9 @@ contract GetAssetCountTest is Test {
         }
 
         vm.stopPrank();
+
+        // Beneficiary accepts designation
+        _acceptBeneficiary(_beneficiary, _grantor);
 
         // Make contract claimable
         _setupClaimableState();

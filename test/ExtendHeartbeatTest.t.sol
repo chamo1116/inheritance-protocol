@@ -62,6 +62,12 @@ contract ExtendHeartbeatTest is Test {
         factory.createWill(30 days);
     }
 
+    // Helper function to accept beneficiary
+    function _acceptBeneficiary(address beneficiary, address grantor) internal {
+        vm.prank(beneficiary);
+        factory.acceptBeneficiary(grantor);
+    }
+
     // extendHeartbeat tests
     function testExtendHeartbeatRevertsWhenNotGrantor() public {
         uint256 newInterval = 60 days;
@@ -92,6 +98,9 @@ contract ExtendHeartbeatTest is Test {
         vm.deal(_grantor, 10 ether);
         factory.depositETH{value: 1 ether}(_beneficiary);
         vm.stopPrank();
+
+        // Beneficiary accepts designation
+        _acceptBeneficiary(_beneficiary, _grantor);
 
         // Make claimable and claim to complete
         vm.warp(block.timestamp + 30 days + 1 seconds);

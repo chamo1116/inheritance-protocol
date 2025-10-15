@@ -69,6 +69,15 @@ contract DepositERC20Test is Test {
         factory.createWill(30 days);
     }
 
+    // Helper function to check if address is a contract
+    function _isContract(address _account) internal view returns (bool) {
+        uint256 size;
+        assembly {
+            size := extcodesize(_account)
+        }
+        return size > 0;
+    }
+
     // depositERC20 tests
     function testDepositERC20RevertsWhenNotGrantor() public {
         uint256 depositAmount = 1000 * 10 ** 18; // 1000 tokens
@@ -419,6 +428,14 @@ contract DepositERC20Test is Test {
         mockToken.mint(_grantor, amount1 + amount2);
 
         vm.startPrank(_grantor);
+
+        // Approve contract beneficiaries if needed
+        if (_isContract(beneficiary1)) {
+            factory.approveContractBeneficiary(beneficiary1);
+        }
+        if (_isContract(beneficiary2)) {
+            factory.approveContractBeneficiary(beneficiary2);
+        }
 
         // Deposit to first beneficiary
         mockToken.approve(address(factory), amount1);

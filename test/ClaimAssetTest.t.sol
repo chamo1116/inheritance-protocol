@@ -78,6 +78,12 @@ contract ClaimAssetTest is Test {
         vm.warp(block.timestamp + 30 days + 1 seconds);
     }
 
+    // Helper function to accept beneficiary
+    function _acceptBeneficiary(address beneficiary, address grantor) internal {
+        vm.prank(beneficiary);
+        factory.acceptBeneficiary(grantor);
+    }
+
     // claimAsset tests
     function testClaimSpecificAssetRevertsWhenNotClaimable() public {
         // Setup: Deposit an ETH asset
@@ -119,6 +125,9 @@ contract ClaimAssetTest is Test {
         // Make contract claimable
         _setupClaimableState();
 
+        // Beneficiary accepts designation
+        _acceptBeneficiary(_beneficiary, _grantor);
+
         // Claim the first asset
         vm.prank(_beneficiary);
         factory.claimAsset(_grantor, 0);
@@ -152,6 +161,9 @@ contract ClaimAssetTest is Test {
         factory.depositETH{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
+        // Beneficiary accepts designation
+        _acceptBeneficiary(_beneficiary, _grantor);
+
         // Make contract claimable
         _setupClaimableState();
 
@@ -179,6 +191,9 @@ contract ClaimAssetTest is Test {
         vm.deal(_grantor, 10 ether);
         factory.depositETH{value: depositAmount}(_beneficiary);
         vm.stopPrank();
+
+        // Beneficiary accepts designation
+        _acceptBeneficiary(_beneficiary, _grantor);
 
         // Make contract claimable
         _setupClaimableState();
@@ -209,6 +224,9 @@ contract ClaimAssetTest is Test {
         mockToken.approve(address(factory), depositAmount);
         factory.depositERC20(address(mockToken), depositAmount, _beneficiary);
         vm.stopPrank();
+
+        // Beneficiary accepts designation
+        _acceptBeneficiary(_beneficiary, _grantor);
 
         // Make contract claimable
         _setupClaimableState();
@@ -246,6 +264,9 @@ contract ClaimAssetTest is Test {
         factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
         vm.stopPrank();
 
+        // Beneficiary accepts designation
+        _acceptBeneficiary(_beneficiary, _grantor);
+
         // Make contract claimable
         _setupClaimableState();
 
@@ -270,6 +291,9 @@ contract ClaimAssetTest is Test {
         factory.depositETH{value: depositAmount}(_beneficiary);
         vm.stopPrank();
 
+        // Beneficiary accepts designation
+        _acceptBeneficiary(_beneficiary, _grantor);
+
         // Make contract claimable
         _setupClaimableState();
 
@@ -289,6 +313,9 @@ contract ClaimAssetTest is Test {
         factory.depositETH{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
+        // Beneficiary accepts designation
+        _acceptBeneficiary(_beneficiary, _grantor);
+
         // Make contract claimable
         _setupClaimableState();
 
@@ -298,8 +325,8 @@ contract ClaimAssetTest is Test {
         (,, DigitalWillFactory.ContractState willState,) = factory.getWillInfo(_grantor);
         assertEq(uint256(willState), uint256(DigitalWillFactory.ContractState.CLAIMABLE), "State should be CLAIMABLE");
 
-        // Expect ContractCompleted event
-        vm.expectEmit(true, true, true, true);
+        // Expect WillCompleted event
+        vm.expectEmit(true, false, false, false);
         emit WillCompleted(_grantor);
 
         // Claim the asset
@@ -326,6 +353,9 @@ contract ClaimAssetTest is Test {
         mockNFT.approve(address(factory), tokenId);
         factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
         vm.stopPrank();
+
+        // Beneficiary accepts designation
+        _acceptBeneficiary(_beneficiary, _grantor);
 
         // Make contract claimable
         _setupClaimableState();
@@ -374,6 +404,11 @@ contract ClaimAssetTest is Test {
         factory.depositETH{value: 2 ether}(beneficiary2);
         factory.depositETH{value: 3 ether}(beneficiary3);
         vm.stopPrank();
+
+        // Beneficiaries accept designation
+        _acceptBeneficiary(beneficiary1, _grantor);
+        _acceptBeneficiary(beneficiary2, _grantor);
+        _acceptBeneficiary(beneficiary3, _grantor);
 
         // Make contract claimable
         _setupClaimableState();
@@ -432,6 +467,9 @@ contract ClaimAssetTest is Test {
         factory.depositETH{value: 3 ether}(_beneficiary);
         vm.stopPrank();
 
+        // Beneficiary accepts designation
+        _acceptBeneficiary(_beneficiary, _grantor);
+
         // Make contract claimable
         _setupClaimableState();
 
@@ -470,6 +508,9 @@ contract ClaimAssetTest is Test {
         // Make contract claimable
         _setupClaimableState();
 
+        // Beneficiary accepts designation
+        _acceptBeneficiary(_beneficiary, _grantor);
+
         // Claim only first asset
         vm.prank(_beneficiary);
         factory.claimAsset(_grantor, 0);
@@ -498,6 +539,9 @@ contract ClaimAssetTest is Test {
         vm.deal(_grantor, 10 ether);
         factory.depositETH{value: 1 ether}(_beneficiary);
         vm.stopPrank();
+
+        // Beneficiary accepts designation
+        _acceptBeneficiary(_beneficiary, _grantor);
 
         // Warp time but don't manually update state
         vm.warp(block.timestamp + 30 days + 1 seconds);
@@ -539,6 +583,9 @@ contract ClaimAssetTest is Test {
         factory.depositERC721(address(mockNFT), nftTokenId, _beneficiary);
         vm.stopPrank();
 
+        // Beneficiary accepts designation
+        _acceptBeneficiary(_beneficiary, _grantor);
+
         // Make contract claimable
         _setupClaimableState();
 
@@ -572,6 +619,9 @@ contract ClaimAssetTest is Test {
         factory.depositETH{value: 3 ether}(_beneficiary);
         vm.stopPrank();
 
+        // Beneficiary accepts designation
+        _acceptBeneficiary(_beneficiary, _grantor);
+
         // Make contract claimable
         _setupClaimableState();
 
@@ -594,6 +644,9 @@ contract ClaimAssetTest is Test {
         vm.deal(_grantor, 10 ether);
         factory.depositETH{value: 1 ether}(_beneficiary);
         vm.stopPrank();
+
+        // Beneficiary accepts designation
+        _acceptBeneficiary(_beneficiary, _grantor);
 
         // Warp to exact boundary
         vm.warp(block.timestamp + 30 days);
@@ -619,6 +672,9 @@ contract ClaimAssetTest is Test {
             factory.depositETH{value: 1 ether}(_beneficiary);
         }
         vm.stopPrank();
+
+        // Beneficiary accepts designation
+        _acceptBeneficiary(_beneficiary, _grantor);
 
         // Make contract claimable
         _setupClaimableState();
@@ -647,6 +703,9 @@ contract ClaimAssetTest is Test {
         factory.depositETH{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
+        // Beneficiary accepts designation
+        _acceptBeneficiary(_beneficiary, _grantor);
+
         // Warp time
         vm.warp(block.timestamp + timeOffset);
 
@@ -671,6 +730,9 @@ contract ClaimAssetTest is Test {
 
         // Make contract claimable
         _setupClaimableState();
+
+        // Beneficiary accepts designation
+        _acceptBeneficiary(_beneficiary, _grantor);
 
         // Claim
         vm.prank(_beneficiary);

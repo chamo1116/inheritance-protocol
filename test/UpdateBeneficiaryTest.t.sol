@@ -62,6 +62,12 @@ contract UpdateBeneficiaryTest is Test {
         factory.createWill(30 days);
     }
 
+    // Helper function to accept beneficiary
+    function _acceptBeneficiary(address beneficiary, address grantor) internal {
+        vm.prank(beneficiary);
+        factory.acceptBeneficiary(grantor);
+    }
+
     // Basic functionality tests
     function testUpdateBeneficiarySuccessfully() public {
         // Deposit ETH asset
@@ -160,6 +166,9 @@ contract UpdateBeneficiaryTest is Test {
         vm.deal(_grantor, 10 ether);
         factory.depositETH{value: 1 ether}(_beneficiary1);
         vm.stopPrank();
+
+        // Beneficiary accepts designation
+        _acceptBeneficiary(_beneficiary1, _grantor);
 
         // Make claimable and claim
         vm.warp(block.timestamp + 30 days + 1 seconds);
@@ -282,6 +291,9 @@ contract UpdateBeneficiaryTest is Test {
         // Update beneficiary
         factory.updateBeneficiary(0, _beneficiary2);
         vm.stopPrank();
+
+        // Beneficiary2 accepts designation (the new beneficiary)
+        _acceptBeneficiary(_beneficiary2, _grantor);
 
         // Make claimable
         vm.warp(block.timestamp + 30 days + 1 seconds);

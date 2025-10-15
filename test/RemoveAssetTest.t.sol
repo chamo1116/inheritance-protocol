@@ -65,6 +65,12 @@ contract RemoveAssetTest is Test {
         factory.createWill(30 days);
     }
 
+    // Helper function to accept beneficiary
+    function _acceptBeneficiary(address beneficiary, address grantor) internal {
+        vm.prank(beneficiary);
+        factory.acceptBeneficiary(grantor);
+    }
+
     // Basic functionality tests
     function testRemoveETHAssetSuccessfully() public {
         vm.startPrank(_grantor);
@@ -224,6 +230,9 @@ contract RemoveAssetTest is Test {
         factory.depositETH{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
+        // Beneficiary accepts designation
+        _acceptBeneficiary(_beneficiary, _grantor);
+
         // Make claimable and claim
         vm.warp(block.timestamp + 30 days + 1 seconds);
         vm.prank(_grantor);
@@ -379,6 +388,9 @@ contract RemoveAssetTest is Test {
         // Remove first asset
         factory.removeAsset(0);
         vm.stopPrank();
+
+        // Beneficiary2 accepts designation
+        _acceptBeneficiary(beneficiary2, _grantor);
 
         // Make claimable
         vm.warp(block.timestamp + 30 days + 1 seconds);

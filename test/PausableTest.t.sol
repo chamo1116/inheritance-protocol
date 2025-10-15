@@ -19,6 +19,12 @@ contract PausableTest is Test {
         willFactory = new DigitalWillFactory();
     }
 
+    // Helper function to accept beneficiary
+    function _acceptBeneficiary(address _beneficiary, address _grantor) internal {
+        vm.prank(_beneficiary);
+        willFactory.acceptBeneficiary(_grantor);
+    }
+
     /**
      * Test that only owner can pause
      */
@@ -168,6 +174,9 @@ contract PausableTest is Test {
         vm.deal(grantor, 1 ether);
         vm.prank(grantor);
         willFactory.depositETH{value: 1 ether}(beneficiary);
+
+        // Beneficiary accepts designation
+        _acceptBeneficiary(beneficiary, grantor);
 
         // Fast forward to make will claimable
         vm.warp(block.timestamp + HEARTBEAT_INTERVAL + 1);

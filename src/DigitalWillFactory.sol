@@ -43,7 +43,6 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
         uint256 heartbeatInterval;
         ContractState state;
         Asset[] assets;
-        mapping(address => uint256[]) beneficiaryAssets;
         uint256 unclaimedAssetsCount; // Track unclaimed assets to avoid loops
     }
 
@@ -173,7 +172,6 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
         _validateBeneficiary(_beneficiary);
 
         Will storage will = wills[msg.sender];
-        uint256 assetIndex = will.assets.length;
 
         will.assets.push(
             Asset({
@@ -186,7 +184,6 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
             })
         );
 
-        will.beneficiaryAssets[_beneficiary].push(assetIndex);
         will.unclaimedAssetsCount++;
 
         emit AssetDeposited(msg.sender, AssetType.ETH, address(0), 0, msg.value, _beneficiary);
@@ -216,7 +213,6 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
         token.safeTransferFrom(msg.sender, address(this), _amount);
 
         Will storage will = wills[msg.sender];
-        uint256 assetIndex = will.assets.length;
         will.assets.push(
             Asset({
                 assetType: AssetType.ERC20,
@@ -228,7 +224,6 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
             })
         );
 
-        will.beneficiaryAssets[_beneficiary].push(assetIndex);
         will.unclaimedAssetsCount++;
 
         emit AssetDeposited(msg.sender, AssetType.ERC20, _tokenAddress, 0, _amount, _beneficiary);
@@ -257,7 +252,6 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
         depositedERC721[msg.sender][_tokenAddress][_tokenId] = true;
 
         Will storage will = wills[msg.sender];
-        uint256 assetIndex = will.assets.length;
         will.assets.push(
             Asset({
                 assetType: AssetType.ERC721,
@@ -269,7 +263,6 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
             })
         );
 
-        will.beneficiaryAssets[_beneficiary].push(assetIndex);
         will.unclaimedAssetsCount++;
 
         emit AssetDeposited(msg.sender, AssetType.ERC721, _tokenAddress, _tokenId, 1, _beneficiary);
@@ -395,9 +388,31 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
 
     /**
      * Get assets for a specific beneficiary from a grantor's will
+     * Iterates through all assets and returns indices where beneficiary matches
      */
     function getBeneficiaryAssets(address _grantor, address _beneficiary) external view returns (uint256[] memory) {
-        return wills[_grantor].beneficiaryAssets[_beneficiary];
+        Will storage will = wills[_grantor];
+        uint256 assetCount = will.assets.length;
+
+        // First pass: count matching assets
+        uint256 matchCount = 0;
+        for (uint256 i = 0; i < assetCount; i++) {
+            if (will.assets[i].beneficiary == _beneficiary) {
+                matchCount++;
+            }
+        }
+
+        // Second pass: populate result array
+        uint256[] memory result = new uint256[](matchCount);
+        uint256 resultIndex = 0;
+        for (uint256 i = 0; i < assetCount; i++) {
+            if (will.assets[i].beneficiary == _beneficiary) {
+                result[resultIndex] = i;
+                resultIndex++;
+            }
+        }
+
+        return result;
     }
 
     /**

@@ -293,6 +293,7 @@ contract ClaimAssetTest is Test {
         _setupClaimableState();
 
         // Verify state is CLAIMABLE before claim
+        vm.prank(_grantor);
         factory.updateState(_grantor);
         (,, DigitalWillFactory.ContractState willState,) = factory.getWillInfo(_grantor);
         assertEq(uint256(willState), uint256(DigitalWillFactory.ContractState.CLAIMABLE), "State should be CLAIMABLE");

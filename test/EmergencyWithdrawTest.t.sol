@@ -78,6 +78,7 @@ contract EmergencyWithdrawTest is Test {
 
         // Make claimable and claim to complete
         vm.warp(block.timestamp + 30 days + 1 seconds);
+        vm.prank(_grantor);
         factory.updateState(_grantor);
         vm.prank(_beneficiary);
         factory.claimAsset(_grantor, 0);
@@ -253,6 +254,7 @@ contract EmergencyWithdrawTest is Test {
 
         // Make claimable
         vm.warp(block.timestamp + 30 days + 1 seconds);
+        vm.prank(_grantor);
         factory.updateState(_grantor);
 
         // Beneficiary claims one asset
@@ -304,6 +306,7 @@ contract EmergencyWithdrawTest is Test {
 
         // Make will CLAIMABLE
         vm.warp(block.timestamp + 30 days + 1 seconds);
+        vm.prank(_grantor);
         factory.updateState(_grantor);
 
         // Verify will is CLAIMABLE

@@ -123,6 +123,7 @@ contract DepositERC721Test is Test {
 
         // Make the will claimable by warping time
         vm.warp(block.timestamp + 30 days + 1 seconds);
+        vm.prank(_grantor);
         factory.updateState(_grantor);
 
         vm.startPrank(_grantor);

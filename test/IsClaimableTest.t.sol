@@ -63,6 +63,7 @@ contract IsClaimableTest is Test {
     function testIsClaimableReturnsTrueWhenStateIsClaimable() public {
         // Make the will claimable by warping time
         vm.warp(block.timestamp + 30 days + 1 seconds);
+        vm.prank(_grantor);
         factory.updateState(_grantor);
 
         bool result = factory.isClaimable(_grantor);

@@ -141,6 +141,7 @@ contract UpdateBeneficiaryTest is Test {
 
         // Make will claimable
         vm.warp(block.timestamp + 30 days + 1 seconds);
+        vm.prank(_grantor);
         factory.updateState(_grantor);
 
         vm.prank(_grantor);
@@ -162,6 +163,7 @@ contract UpdateBeneficiaryTest is Test {
 
         // Make claimable and claim
         vm.warp(block.timestamp + 30 days + 1 seconds);
+        vm.prank(_grantor);
         factory.updateState(_grantor);
         vm.prank(_beneficiary1);
         factory.claimAsset(_grantor, 0);
@@ -283,6 +285,7 @@ contract UpdateBeneficiaryTest is Test {
 
         // Make claimable
         vm.warp(block.timestamp + 30 days + 1 seconds);
+        vm.prank(_grantor);
         factory.updateState(_grantor);
 
         // Beneficiary1 should not be able to claim

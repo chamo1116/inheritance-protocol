@@ -76,6 +76,7 @@ contract ExtendHeartbeatTest is Test {
 
         // Make the will claimable by warping time
         vm.warp(block.timestamp + 30 days + 1 seconds);
+        vm.prank(_grantor);
         factory.updateState(_grantor);
 
         vm.prank(_grantor);
@@ -94,6 +95,7 @@ contract ExtendHeartbeatTest is Test {
 
         // Make claimable and claim to complete
         vm.warp(block.timestamp + 30 days + 1 seconds);
+        vm.prank(_grantor);
         factory.updateState(_grantor);
         vm.prank(_beneficiary);
         factory.claimAsset(_grantor, 0);
@@ -269,6 +271,7 @@ contract ExtendHeartbeatTest is Test {
         vm.warp(block.timestamp + 30 days + 1 seconds);
 
         // Update state to CLAIMABLE
+        vm.prank(_grantor);
         factory.updateState(_grantor);
 
         // Verify state is CLAIMABLE

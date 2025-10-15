@@ -141,6 +141,7 @@ contract ModifyHeartbeatTest is Test {
 
         // Make the will claimable by warping time
         vm.warp(block.timestamp + 30 days + 1 seconds);
+        vm.prank(_grantor);
         factory.updateState(_grantor);
 
         vm.prank(_grantor);
@@ -159,6 +160,7 @@ contract ModifyHeartbeatTest is Test {
 
         // Make claimable and claim to complete
         vm.warp(block.timestamp + 30 days + 1 seconds);
+        vm.prank(_grantor);
         factory.updateState(_grantor);
         vm.prank(_beneficiary);
         factory.claimAsset(_grantor, 0);
@@ -396,6 +398,7 @@ contract ModifyHeartbeatTest is Test {
 
         // Warp to new interval
         vm.warp(lastCheckIn + 7 days);
+        vm.prank(_grantor);
         factory.updateState(_grantor);
 
         // Beneficiary should be able to claim
@@ -427,6 +430,7 @@ contract ModifyHeartbeatTest is Test {
         vm.warp(block.timestamp + 30 days + 1 seconds);
 
         // Update state to CLAIMABLE
+        vm.prank(_grantor);
         factory.updateState(_grantor);
 
         // Verify state is CLAIMABLE

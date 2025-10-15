@@ -111,6 +111,7 @@ contract DepositERC20Test is Test {
     function testDepositERC20RevertsWhenNotActive() public {
         // Make the will claimable by warping time
         vm.warp(block.timestamp + 30 days + 1 seconds);
+        vm.prank(_grantor);
         factory.updateState(_grantor);
 
         uint256 depositAmount = 1000 * 10 ** 18;

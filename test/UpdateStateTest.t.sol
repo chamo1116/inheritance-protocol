@@ -68,7 +68,8 @@ contract UpdateStateTest is Test {
         // Advance time beyond heartbeat interval
         vm.warp(block.timestamp + 30 days + 1 seconds);
 
-        // Call updateState
+        // Call updateState as grantor
+        vm.prank(_grantor);
         factory.updateState(_grantor);
 
         // Verify state changed to CLAIMABLE
@@ -85,7 +86,8 @@ contract UpdateStateTest is Test {
         (,, DigitalWillFactory.ContractState willState,) = factory.getWillInfo(_grantor);
         assertEq(uint256(willState), uint256(DigitalWillFactory.ContractState.ACTIVE), "Initial state should be ACTIVE");
 
-        // Call updateState (heartbeat not expired)
+        // Call updateState as grantor (heartbeat not expired)
+        vm.prank(_grantor);
         factory.updateState(_grantor);
 
         // Verify state remains ACTIVE
@@ -97,12 +99,14 @@ contract UpdateStateTest is Test {
         // Advance time beyond heartbeat interval
         vm.warp(block.timestamp + 30 days + 1 seconds);
 
-        // First call to updateState
+        // First call to updateState as grantor
+        vm.prank(_grantor);
         factory.updateState(_grantor);
         (,, DigitalWillFactory.ContractState willState,) = factory.getWillInfo(_grantor);
         assertEq(uint256(willState), uint256(DigitalWillFactory.ContractState.CLAIMABLE), "State should be CLAIMABLE");
 
-        // Second call to updateState
+        // Second call to updateState as grantor
+        vm.prank(_grantor);
         factory.updateState(_grantor);
 
         // Verify state remains CLAIMABLE
@@ -121,6 +125,7 @@ contract UpdateStateTest is Test {
 
         // Make claimable
         vm.warp(block.timestamp + 30 days + 1 seconds);
+        vm.prank(_grantor);
         factory.updateState(_grantor);
 
         // Claim the asset to complete the will
@@ -138,7 +143,8 @@ contract UpdateStateTest is Test {
         // Advance time beyond heartbeat interval again
         vm.warp(block.timestamp + 30 days + 1 seconds);
 
-        // Call updateState
+        // Call updateState as grantor
+        vm.prank(_grantor);
         factory.updateState(_grantor);
 
         // Verify state remains COMPLETED
@@ -148,12 +154,41 @@ contract UpdateStateTest is Test {
         );
     }
 
-    function testUpdateStateCanBeCalledByAnyone() public {
+    function testUpdateStateCannotBeCalledByUnauthorizedUser() public {
         // Advance time beyond heartbeat interval
         vm.warp(block.timestamp + 30 days + 1 seconds);
 
-        // Call updateState as random user
+        // Attempt to call updateState as random user (should fail)
         vm.prank(_randomUser);
+        vm.expectRevert("Unauthorized to update state");
+        factory.updateState(_grantor);
+    }
+
+    function testUpdateStateCanBeCalledByGrantor() public {
+        // Advance time beyond heartbeat interval
+        vm.warp(block.timestamp + 30 days + 1 seconds);
+
+        // Call updateState as grantor (should succeed)
+        vm.prank(_grantor);
+        factory.updateState(_grantor);
+
+        // Verify state changed to CLAIMABLE
+        (,, DigitalWillFactory.ContractState willState,) = factory.getWillInfo(_grantor);
+        assertEq(uint256(willState), uint256(DigitalWillFactory.ContractState.CLAIMABLE), "State should be CLAIMABLE");
+    }
+
+    function testUpdateStateCanBeCalledByBeneficiary() public {
+        // Setup: Deposit an asset for the beneficiary
+        vm.startPrank(_grantor);
+        vm.deal(_grantor, 10 ether);
+        factory.depositETH{value: 1 ether}(_beneficiary);
+        vm.stopPrank();
+
+        // Advance time beyond heartbeat interval
+        vm.warp(block.timestamp + 30 days + 1 seconds);
+
+        // Call updateState as beneficiary (should succeed)
+        vm.prank(_beneficiary);
         factory.updateState(_grantor);
 
         // Verify state changed to CLAIMABLE
@@ -165,7 +200,8 @@ contract UpdateStateTest is Test {
         // Advance time to exactly heartbeatInterval
         vm.warp(block.timestamp + 30 days);
 
-        // Call updateState
+        // Call updateState as grantor
+        vm.prank(_grantor);
         factory.updateState(_grantor);
 
         // Verify state changed to CLAIMABLE
@@ -181,7 +217,8 @@ contract UpdateStateTest is Test {
         // Advance time beyond heartbeat interval
         vm.warp(block.timestamp + 30 days + 1 seconds);
 
-        // First call
+        // First call as grantor
+        vm.prank(_grantor);
         factory.updateState(_grantor);
         (,, DigitalWillFactory.ContractState willState,) = factory.getWillInfo(_grantor);
         assertEq(
@@ -193,7 +230,8 @@ contract UpdateStateTest is Test {
         // Advance time further
         vm.warp(block.timestamp + 10 days);
 
-        // Second call
+        // Second call as grantor
+        vm.prank(_grantor);
         factory.updateState(_grantor);
         (,, willState,) = factory.getWillInfo(_grantor);
         assertEq(
@@ -216,6 +254,7 @@ contract UpdateStateTest is Test {
         factory.checkIn();
 
         // Update state should not change anything
+        vm.prank(_grantor);
         factory.updateState(_grantor);
         (,, willState,) = factory.getWillInfo(_grantor);
         assertEq(
@@ -226,6 +265,7 @@ contract UpdateStateTest is Test {
         vm.warp(block.timestamp + 30 days + 1 seconds);
 
         // Update state should now change to CLAIMABLE
+        vm.prank(_grantor);
         factory.updateState(_grantor);
         (,, willState,) = factory.getWillInfo(_grantor);
         assertEq(
@@ -242,7 +282,8 @@ contract UpdateStateTest is Test {
 
         vm.warp(block.timestamp + timeOffset);
 
-        // Call updateState
+        // Call updateState as grantor
+        vm.prank(_grantor);
         factory.updateState(_grantor);
 
         // Check expected state

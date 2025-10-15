@@ -109,6 +109,8 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
 
     event HeartbeatModified(address indexed grantor, uint256 oldInterval, uint256 newInterval);
 
+    event StateUpdated(address indexed grantor, ContractState newState, address indexed updater);
+
     // Modifiers
     modifier willExists() {
         require(wills[msg.sender].state != ContractState.INACTIVE, "Will does not exist");
@@ -145,12 +147,13 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
 
     /**
      * Update will state based on heartbeat
+     * Only grantor or beneficiaries can update state to prevent DDOS
      */
     function updateState(address grantor) public {
-        Will storage will = wills[grantor];
-        if (will.state == ContractState.ACTIVE && isClaimable(grantor)) {
-            will.state = ContractState.CLAIMABLE;
-        }
+        // Access control: Only grantor or beneficiaries can update state
+        require(msg.sender == grantor || _isBeneficiaryOf(msg.sender, grantor), "Unauthorized to update state");
+
+        _updateState(grantor);
     }
 
     // External functions
@@ -292,7 +295,7 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
         nonReentrant
         willNotCompleted(grantor)
     {
-        updateState(grantor);
+        _updateState(grantor);
         Will storage will = wills[grantor];
         require(will.state == ContractState.CLAIMABLE, "Will not yet claimable");
 
@@ -565,6 +568,19 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
     // Internal functions
 
     /**
+     * Internal helper to update state without access control
+     * Used by claimAsset and other internal functions
+     */
+    function _updateState(address grantor) internal {
+        Will storage will = wills[grantor];
+
+        if (will.state == ContractState.ACTIVE && isClaimable(grantor)) {
+            will.state = ContractState.CLAIMABLE;
+            emit StateUpdated(grantor, ContractState.CLAIMABLE, msg.sender);
+        }
+    }
+
+    /**
      * Check if an address is a contract
      */
     function _isContract(address _account) internal view returns (bool) {
@@ -597,6 +613,19 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
     function _validateTokenContract(address _tokenAddress) internal view {
         require(_tokenAddress != address(0), "Invalid token address");
         require(_isContract(_tokenAddress), "Token address must be a contract");
+    }
+
+    /**
+     * Check if an address is a beneficiary of any unclaimed asset for a grantor
+     */
+    function _isBeneficiaryOf(address account, address grantor) internal view returns (bool) {
+        Will storage will = wills[grantor];
+        for (uint256 i = 0; i < will.assets.length; i++) {
+            if (will.assets[i].beneficiary == account && !will.assets[i].claimed) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

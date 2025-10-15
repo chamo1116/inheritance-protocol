@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-import {Test, console} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {DigitalWillFactory} from "../src/DigitalWillFactory.sol";
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -36,7 +36,7 @@ contract MockERC721 is ERC721 {
 contract DepositETHTest is Test {
     DigitalWillFactory public factory;
     MockERC20 public mockToken;
-    MockERC721 public mockNFT;
+    MockERC721 public mockNft;
 
     address public _grantor;
     address public _randomUser;
@@ -59,7 +59,7 @@ contract DepositETHTest is Test {
 
         // Deploy mock contracts
         mockToken = new MockERC20("MockToken", "MTK");
-        mockNFT = new MockERC721("MockNFT", "MNFT");
+        mockNft = new MockERC721("MockNFT", "MNFT");
 
         // Deploy factory
         factory = new DigitalWillFactory();
@@ -74,14 +74,14 @@ contract DepositETHTest is Test {
         vm.startPrank(_randomUser);
         vm.deal(_randomUser, 10 ether);
         vm.expectRevert("Will does not exist");
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
         vm.stopPrank();
     }
 
     function testDepositETHRevertsWithZeroValue() public {
         vm.startPrank(_grantor);
         vm.expectRevert("Must send ETH");
-        factory.depositETH{value: 0}(_beneficiary);
+        factory.depositEth{value: 0}(_beneficiary);
         vm.stopPrank();
     }
 
@@ -90,7 +90,7 @@ contract DepositETHTest is Test {
         vm.deal(_grantor, 10 ether);
         vm.expectRevert("Invalid beneficiary address");
 
-        factory.depositETH{value: 1 ether}(address(0));
+        factory.depositEth{value: 1 ether}(address(0));
         vm.stopPrank();
     }
 
@@ -104,7 +104,7 @@ contract DepositETHTest is Test {
         vm.deal(_grantor, 10 ether);
 
         vm.expectRevert("Will must be active");
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
         vm.stopPrank();
     }
 
@@ -115,7 +115,7 @@ contract DepositETHTest is Test {
 
         uint256 initialBalance = address(factory).balance;
 
-        factory.depositETH{value: depositAmount}(_beneficiary);
+        factory.depositEth{value: depositAmount}(_beneficiary);
 
         // Check contract balance updated
         assertEq(
@@ -135,13 +135,13 @@ contract DepositETHTest is Test {
         vm.deal(_grantor, 10 ether);
 
         // First deposit
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
 
         // Second deposit
-        factory.depositETH{value: 2 ether}(_beneficiary);
+        factory.depositEth{value: 2 ether}(_beneficiary);
 
         // Third deposit
-        factory.depositETH{value: 3 ether}(_beneficiary);
+        factory.depositEth{value: 3 ether}(_beneficiary);
 
         // Check contract balance
         assertEq(address(factory).balance, 6 ether, "Contract should have 6 ETH total");
@@ -173,11 +173,11 @@ contract DepositETHTest is Test {
 
         // Deposit to different beneficiaries
 
-        factory.depositETH{value: 1 ether}(beneficiary1);
+        factory.depositEth{value: 1 ether}(beneficiary1);
 
-        factory.depositETH{value: 2 ether}(beneficiary2);
+        factory.depositEth{value: 2 ether}(beneficiary2);
 
-        factory.depositETH{value: 3 ether}(beneficiary3);
+        factory.depositEth{value: 3 ether}(beneficiary3);
 
         // Check contract balance
         assertEq(address(factory).balance, 6 ether, "Contract should have 6 ETH total");
@@ -206,7 +206,7 @@ contract DepositETHTest is Test {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
 
-        vm.expectRevert("Use depositETH function");
+        vm.expectRevert("Use depositEth function");
         (bool success,) = address(factory).call{value: 1 ether}("");
         success; // Silence unused variable warning
 
@@ -221,7 +221,7 @@ contract DepositETHTest is Test {
         vm.startPrank(_grantor);
         vm.deal(_grantor, amount);
 
-        factory.depositETH{value: amount}(_beneficiary);
+        factory.depositEth{value: amount}(_beneficiary);
 
         // Verify balance and storage
         assertEq(address(factory).balance, amount, "Contract balance should match deposit");

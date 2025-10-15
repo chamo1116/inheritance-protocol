@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-import "./Base.sol";
+import {Base} from "./Base.sol";
+import {DigitalWillFactory} from "../src/DigitalWillFactory.sol";
 
 contract BeneficiaryAcceptanceTest is Base {
     address public grantor;
@@ -27,8 +28,8 @@ contract BeneficiaryAcceptanceTest is Base {
         // Setup: Create will and deposit assets using Base helpers
         fundUser(grantor, 10 ether);
         createWillFor(grantor, HEARTBEAT_INTERVAL);
-        depositETH(grantor, DEPOSIT_AMOUNT, beneficiary1);
-        depositETH(grantor, DEPOSIT_AMOUNT, beneficiary2);
+        depositEth(grantor, DEPOSIT_AMOUNT, beneficiary1);
+        depositEth(grantor, DEPOSIT_AMOUNT, beneficiary2);
     }
 
     // ============ Accept Beneficiary Tests ============
@@ -81,7 +82,7 @@ contract BeneficiaryAcceptanceTest is Base {
     function test_AcceptBeneficiary_AfterBeingReassigned() public {
         // Grantor assigns another asset to beneficiary1
         vm.prank(grantor);
-        factory.depositETH{value: DEPOSIT_AMOUNT}(beneficiary1);
+        factory.depositEth{value: DEPOSIT_AMOUNT}(beneficiary1);
 
         // Beneficiary1 accepts once (covers all assets from this grantor)
         vm.prank(beneficiary1);
@@ -253,7 +254,7 @@ contract BeneficiaryAcceptanceTest is Base {
     function test_UpdateBeneficiary_OldBeneficiaryAcceptanceStillValid() public {
         // Give beneficiary1 another asset (index 2)
         vm.prank(grantor);
-        factory.depositETH{value: DEPOSIT_AMOUNT}(beneficiary1);
+        factory.depositEth{value: DEPOSIT_AMOUNT}(beneficiary1);
 
         // Beneficiary1 accepts
         vm.prank(beneficiary1);
@@ -283,7 +284,7 @@ contract BeneficiaryAcceptanceTest is Base {
 
         // Grantor approves and deposits using helpers
         approveContractBeneficiary(grantor, contractBeneficiary);
-        depositETH(grantor, DEPOSIT_AMOUNT, contractBeneficiary);
+        depositEth(grantor, DEPOSIT_AMOUNT, contractBeneficiary);
 
         // Make will claimable using helper
         makeWillClaimable(grantor, HEARTBEAT_INTERVAL);
@@ -350,7 +351,7 @@ contract BeneficiaryAcceptanceTest is Base {
 
         vm.startPrank(grantor2);
         factory.createWill(HEARTBEAT_INTERVAL);
-        factory.depositETH{value: DEPOSIT_AMOUNT}(beneficiary1);
+        factory.depositEth{value: DEPOSIT_AMOUNT}(beneficiary1);
         vm.stopPrank();
 
         // Beneficiary accepts from grantor1

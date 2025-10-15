@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-import {Test, console} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {DigitalWillFactory} from "../src/DigitalWillFactory.sol";
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -32,7 +32,7 @@ contract MockERC721 is ERC721 {
 contract ModifyHeartbeatTest is Test {
     DigitalWillFactory public factory;
     MockERC20 public mockToken;
-    MockERC721 public mockNFT;
+    MockERC721 public mockNft;
 
     address public _grantor;
     address public _beneficiary;
@@ -48,7 +48,7 @@ contract ModifyHeartbeatTest is Test {
 
         // Deploy mock contracts
         mockToken = new MockERC20("MockToken", "MTK");
-        mockNFT = new MockERC721("MockNFT", "MNFT");
+        mockNft = new MockERC721("MockNFT", "MNFT");
 
         // Deploy factory
         factory = new DigitalWillFactory();
@@ -161,7 +161,7 @@ contract ModifyHeartbeatTest is Test {
         // Setup: Deposit an asset and complete the will
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
         // Beneficiary accepts designation
@@ -376,7 +376,7 @@ contract ModifyHeartbeatTest is Test {
     function testModifyHeartbeatDoesNotAffectAssets() public {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
 
         (,,, uint256 assetCountBefore) = factory.getWillInfo(_grantor);
 
@@ -397,7 +397,7 @@ contract ModifyHeartbeatTest is Test {
     function testModifyHeartbeatThenClaim() public {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
 
         // Reduce interval
         factory.modifyHeartbeat(7 days);

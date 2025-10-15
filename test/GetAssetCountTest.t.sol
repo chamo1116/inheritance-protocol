@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-import {Test, console} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {DigitalWillFactory} from "../src/DigitalWillFactory.sol";
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -36,7 +36,7 @@ contract MockERC721 is ERC721 {
 contract GetAssetCountTest is Test {
     DigitalWillFactory public factory;
     MockERC20 public mockToken;
-    MockERC721 public mockNFT;
+    MockERC721 public mockNft;
 
     address public _grantor;
     address public _randomUser;
@@ -49,7 +49,7 @@ contract GetAssetCountTest is Test {
 
         // Deploy mock contracts
         mockToken = new MockERC20("MockToken", "MTK");
-        mockNFT = new MockERC721("MockNFT", "MNFT");
+        mockNft = new MockERC721("MockNFT", "MNFT");
 
         // Deploy factory
         factory = new DigitalWillFactory();
@@ -80,7 +80,7 @@ contract GetAssetCountTest is Test {
     function testGetAssetCountAfterSingleETHDeposit() public {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
         uint256 count = factory.getAssetCount(_grantor);
@@ -101,11 +101,11 @@ contract GetAssetCountTest is Test {
     }
 
     function testGetAssetCountAfterSingleERC721Deposit() public {
-        uint256 tokenId = mockNFT.mint(_grantor);
+        uint256 tokenId = mockNft.mint(_grantor);
 
         vm.startPrank(_grantor);
-        mockNFT.approve(address(factory), tokenId);
-        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        mockNft.approve(address(factory), tokenId);
+        factory.depositERC721(address(mockNft), tokenId, _beneficiary);
         vm.stopPrank();
 
         uint256 count = factory.getAssetCount(_grantor);
@@ -116,9 +116,9 @@ contract GetAssetCountTest is Test {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
 
-        factory.depositETH{value: 1 ether}(_beneficiary);
-        factory.depositETH{value: 2 ether}(_beneficiary);
-        factory.depositETH{value: 3 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 2 ether}(_beneficiary);
+        factory.depositEth{value: 3 ether}(_beneficiary);
 
         vm.stopPrank();
 
@@ -131,7 +131,7 @@ contract GetAssetCountTest is Test {
         vm.deal(_grantor, 10 ether);
 
         // Deposit ETH
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
 
         // Deposit ERC20
         uint256 tokenAmount = 1000 * 10 ** 18;
@@ -140,9 +140,9 @@ contract GetAssetCountTest is Test {
         factory.depositERC20(address(mockToken), tokenAmount, _beneficiary);
 
         // Deposit ERC721
-        uint256 nftTokenId = mockNFT.mint(_grantor);
-        mockNFT.approve(address(factory), nftTokenId);
-        factory.depositERC721(address(mockNFT), nftTokenId, _beneficiary);
+        uint256 nftTokenId = mockNft.mint(_grantor);
+        mockNft.approve(address(factory), nftTokenId);
+        factory.depositERC721(address(mockNft), nftTokenId, _beneficiary);
 
         vm.stopPrank();
 
@@ -158,9 +158,9 @@ contract GetAssetCountTest is Test {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
 
-        factory.depositETH{value: 1 ether}(beneficiary1);
-        factory.depositETH{value: 2 ether}(beneficiary2);
-        factory.depositETH{value: 3 ether}(beneficiary3);
+        factory.depositEth{value: 1 ether}(beneficiary1);
+        factory.depositEth{value: 2 ether}(beneficiary2);
+        factory.depositEth{value: 3 ether}(beneficiary3);
 
         vm.stopPrank();
 
@@ -172,8 +172,8 @@ contract GetAssetCountTest is Test {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
 
-        factory.depositETH{value: 1 ether}(_beneficiary);
-        factory.depositETH{value: 2 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 2 ether}(_beneficiary);
 
         vm.stopPrank();
 
@@ -195,8 +195,8 @@ contract GetAssetCountTest is Test {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
 
-        factory.depositETH{value: 1 ether}(_beneficiary);
-        factory.depositETH{value: 2 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 2 ether}(_beneficiary);
 
         vm.stopPrank();
 
@@ -223,15 +223,15 @@ contract GetAssetCountTest is Test {
         uint256 count = factory.getAssetCount(_grantor);
         assertEq(count, 0, "Initial count should be 0");
 
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
         count = factory.getAssetCount(_grantor);
         assertEq(count, 1, "Count should be 1 after first deposit");
 
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
         count = factory.getAssetCount(_grantor);
         assertEq(count, 2, "Count should be 2 after second deposit");
 
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
         count = factory.getAssetCount(_grantor);
         assertEq(count, 3, "Count should be 3 after third deposit");
 
@@ -247,7 +247,7 @@ contract GetAssetCountTest is Test {
         vm.deal(_grantor, uint256(numDeposits) * 1 ether);
 
         for (uint256 i = 0; i < numDeposits; i++) {
-            factory.depositETH{value: 1 ether}(_beneficiary);
+            factory.depositEth{value: 1 ether}(_beneficiary);
         }
 
         vm.stopPrank();
@@ -283,9 +283,9 @@ contract GetAssetCountTest is Test {
         vm.startPrank(_grantor);
 
         for (uint256 i = 0; i < numDeposits; i++) {
-            uint256 tokenId = mockNFT.mint(_grantor);
-            mockNFT.approve(address(factory), tokenId);
-            factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
+            uint256 tokenId = mockNft.mint(_grantor);
+            mockNft.approve(address(factory), tokenId);
+            factory.depositERC721(address(mockNft), tokenId, _beneficiary);
         }
 
         vm.stopPrank();
@@ -294,18 +294,18 @@ contract GetAssetCountTest is Test {
         assertEq(count, numDeposits, "Asset count should match number of ERC721 deposits");
     }
 
-    function testFuzzGetAssetCountWithMixedAssets(uint8 numETH, uint8 numERC20, uint8 numERC721) public {
+    function testFuzzGetAssetCountWithMixedAssets(uint8 numEth, uint8 numERC20, uint8 numERC721) public {
         // Bound each type to reasonable numbers
-        numETH = uint8(bound(numETH, 0, 20));
+        numEth = uint8(bound(numEth, 0, 20));
         numERC20 = uint8(bound(numERC20, 0, 20));
         numERC721 = uint8(bound(numERC721, 0, 20));
 
         vm.startPrank(_grantor);
-        vm.deal(_grantor, uint256(numETH) * 1 ether);
+        vm.deal(_grantor, uint256(numEth) * 1 ether);
 
         // Deposit ETH
-        for (uint256 i = 0; i < numETH; i++) {
-            factory.depositETH{value: 1 ether}(_beneficiary);
+        for (uint256 i = 0; i < numEth; i++) {
+            factory.depositEth{value: 1 ether}(_beneficiary);
         }
 
         // Deposit ERC20
@@ -318,14 +318,14 @@ contract GetAssetCountTest is Test {
 
         // Deposit ERC721
         for (uint256 i = 0; i < numERC721; i++) {
-            uint256 tokenId = mockNFT.mint(_grantor);
-            mockNFT.approve(address(factory), tokenId);
-            factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
+            uint256 tokenId = mockNft.mint(_grantor);
+            mockNft.approve(address(factory), tokenId);
+            factory.depositERC721(address(mockNft), tokenId, _beneficiary);
         }
 
         vm.stopPrank();
 
-        uint256 expectedCount = uint256(numETH) + uint256(numERC20) + uint256(numERC721);
+        uint256 expectedCount = uint256(numEth) + uint256(numERC20) + uint256(numERC721);
         uint256 count = factory.getAssetCount(_grantor);
         assertEq(count, expectedCount, "Asset count should match total of all asset types");
     }
@@ -340,7 +340,7 @@ contract GetAssetCountTest is Test {
         vm.deal(_grantor, uint256(numDeposits) * 1 ether);
 
         for (uint256 i = 0; i < numDeposits; i++) {
-            factory.depositETH{value: 1 ether}(_beneficiary);
+            factory.depositEth{value: 1 ether}(_beneficiary);
         }
 
         vm.stopPrank();

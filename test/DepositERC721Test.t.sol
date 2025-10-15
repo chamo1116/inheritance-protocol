@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-import {Test, console} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {DigitalWillFactory} from "../src/DigitalWillFactory.sol";
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -36,7 +36,7 @@ contract MockERC721 is ERC721 {
 contract DepositERC721Test is Test {
     DigitalWillFactory public factory;
     MockERC20 public mockToken;
-    MockERC721 public mockNFT;
+    MockERC721 public mockNft;
 
     address public _grantor;
     address public _randomUser;
@@ -59,7 +59,7 @@ contract DepositERC721Test is Test {
 
         // Deploy mock contracts
         mockToken = new MockERC20("MockToken", "MTK");
-        mockNFT = new MockERC721("MockNFT", "MNFT");
+        mockNft = new MockERC721("MockNFT", "MNFT");
 
         // Deploy factory
         factory = new DigitalWillFactory();
@@ -72,13 +72,13 @@ contract DepositERC721Test is Test {
     // depositERC721 tests
     function testDepositERC721RevertsWhenNotGrantor() public {
         // Mint NFT to random user
-        uint256 tokenId = mockNFT.mint(_randomUser);
+        uint256 tokenId = mockNft.mint(_randomUser);
 
         vm.startPrank(_randomUser);
-        mockNFT.approve(address(factory), tokenId);
+        mockNft.approve(address(factory), tokenId);
 
         vm.expectRevert("Will does not exist");
-        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        factory.depositERC721(address(mockNft), tokenId, _beneficiary);
         vm.stopPrank();
     }
 
@@ -92,33 +92,33 @@ contract DepositERC721Test is Test {
     }
 
     function testDepositERC721RevertsWithInvalidBeneficiaryAddress() public {
-        uint256 tokenId = mockNFT.mint(_grantor);
+        uint256 tokenId = mockNft.mint(_grantor);
 
         vm.startPrank(_grantor);
-        mockNFT.approve(address(factory), tokenId);
+        mockNft.approve(address(factory), tokenId);
 
         vm.expectRevert("Invalid beneficiary address");
-        factory.depositERC721(address(mockNFT), tokenId, address(0));
+        factory.depositERC721(address(mockNft), tokenId, address(0));
 
         vm.stopPrank();
     }
 
     function testDepositERC721RevertsWhenOwnerIsNotGrantor() public {
-        uint256 tokenId = mockNFT.mint(_randomUser);
+        uint256 tokenId = mockNft.mint(_randomUser);
 
         vm.startPrank(_grantor);
 
         vm.expectRevert("Not the owner of NFT");
-        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        factory.depositERC721(address(mockNft), tokenId, _beneficiary);
 
         vm.stopPrank();
     }
 
     function testDepositERC721RevertsWhenNotActive() public {
-        uint256 tokenId = mockNFT.mint(_grantor);
+        uint256 tokenId = mockNft.mint(_grantor);
 
         vm.startPrank(_grantor);
-        mockNFT.approve(address(factory), tokenId);
+        mockNft.approve(address(factory), tokenId);
         vm.stopPrank();
 
         // Make the will claimable by warping time
@@ -128,21 +128,21 @@ contract DepositERC721Test is Test {
 
         vm.startPrank(_grantor);
         vm.expectRevert("Will must be active");
-        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        factory.depositERC721(address(mockNft), tokenId, _beneficiary);
 
         vm.stopPrank();
     }
 
     function testDepositERC721Successfully() public {
-        uint256 tokenId = mockNFT.mint(_grantor);
+        uint256 tokenId = mockNft.mint(_grantor);
 
         vm.startPrank(_grantor);
-        mockNFT.approve(address(factory), tokenId);
+        mockNft.approve(address(factory), tokenId);
 
-        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        factory.depositERC721(address(mockNft), tokenId, _beneficiary);
 
         // Check NFT ownership transferred
-        assertEq(mockNFT.ownerOf(tokenId), address(factory), "NFT should be owned by contract");
+        assertEq(mockNft.ownerOf(tokenId), address(factory), "NFT should be owned by contract");
 
         // Check asset stored correctly
         (
@@ -155,7 +155,7 @@ contract DepositERC721Test is Test {
         ) = factory.getAsset(_grantor, 0);
 
         assertEq(uint256(assetType), uint256(DigitalWillFactory.AssetType.ERC721), "Asset type should be ERC721");
-        assertEq(tokenAddress, address(mockNFT), "Token address should match");
+        assertEq(tokenAddress, address(mockNft), "Token address should match");
         assertEq(storedTokenId, tokenId, "Token ID should match");
         assertEq(amount, 1, "Amount should be 1");
         assertEq(storedBeneficiary, _beneficiary, "Beneficiary should match");
@@ -171,15 +171,15 @@ contract DepositERC721Test is Test {
 
     function testDepositERC721EmitsEvent() public {
         // Mint NFT to grantor
-        uint256 tokenId = mockNFT.mint(_grantor);
+        uint256 tokenId = mockNft.mint(_grantor);
 
         vm.startPrank(_grantor);
-        mockNFT.approve(address(factory), tokenId);
+        mockNft.approve(address(factory), tokenId);
 
         vm.expectEmit(true, true, true, true);
-        emit AssetDeposited(_grantor, DigitalWillFactory.AssetType.ERC721, address(mockNFT), tokenId, 1, _beneficiary);
+        emit AssetDeposited(_grantor, DigitalWillFactory.AssetType.ERC721, address(mockNft), tokenId, 1, _beneficiary);
 
-        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        factory.depositERC721(address(mockNft), tokenId, _beneficiary);
 
         vm.stopPrank();
     }
@@ -188,22 +188,22 @@ contract DepositERC721Test is Test {
         vm.startPrank(_grantor);
 
         // Mint and deposit multiple NFTs
-        uint256 tokenId1 = mockNFT.mint(_grantor);
-        mockNFT.approve(address(factory), tokenId1);
-        factory.depositERC721(address(mockNFT), tokenId1, _beneficiary);
+        uint256 tokenId1 = mockNft.mint(_grantor);
+        mockNft.approve(address(factory), tokenId1);
+        factory.depositERC721(address(mockNft), tokenId1, _beneficiary);
 
-        uint256 tokenId2 = mockNFT.mint(_grantor);
-        mockNFT.approve(address(factory), tokenId2);
-        factory.depositERC721(address(mockNFT), tokenId2, _beneficiary);
+        uint256 tokenId2 = mockNft.mint(_grantor);
+        mockNft.approve(address(factory), tokenId2);
+        factory.depositERC721(address(mockNft), tokenId2, _beneficiary);
 
-        uint256 tokenId3 = mockNFT.mint(_grantor);
-        mockNFT.approve(address(factory), tokenId3);
-        factory.depositERC721(address(mockNFT), tokenId3, _beneficiary);
+        uint256 tokenId3 = mockNft.mint(_grantor);
+        mockNft.approve(address(factory), tokenId3);
+        factory.depositERC721(address(mockNft), tokenId3, _beneficiary);
 
         // Check all NFTs are owned by contract
-        assertEq(mockNFT.ownerOf(tokenId1), address(factory), "NFT 1 should be owned by contract");
-        assertEq(mockNFT.ownerOf(tokenId2), address(factory), "NFT 2 should be owned by contract");
-        assertEq(mockNFT.ownerOf(tokenId3), address(factory), "NFT 3 should be owned by contract");
+        assertEq(mockNft.ownerOf(tokenId1), address(factory), "NFT 1 should be owned by contract");
+        assertEq(mockNft.ownerOf(tokenId2), address(factory), "NFT 2 should be owned by contract");
+        assertEq(mockNft.ownerOf(tokenId3), address(factory), "NFT 3 should be owned by contract");
 
         // Check all assets stored
         (,, uint256 storedId1,,,) = factory.getAsset(_grantor, 0);
@@ -231,17 +231,17 @@ contract DepositERC721Test is Test {
         vm.startPrank(_grantor);
 
         // Mint and deposit NFTs to different beneficiaries
-        uint256 tokenId1 = mockNFT.mint(_grantor);
-        mockNFT.approve(address(factory), tokenId1);
-        factory.depositERC721(address(mockNFT), tokenId1, beneficiary1);
+        uint256 tokenId1 = mockNft.mint(_grantor);
+        mockNft.approve(address(factory), tokenId1);
+        factory.depositERC721(address(mockNft), tokenId1, beneficiary1);
 
-        uint256 tokenId2 = mockNFT.mint(_grantor);
-        mockNFT.approve(address(factory), tokenId2);
-        factory.depositERC721(address(mockNFT), tokenId2, beneficiary2);
+        uint256 tokenId2 = mockNft.mint(_grantor);
+        mockNft.approve(address(factory), tokenId2);
+        factory.depositERC721(address(mockNft), tokenId2, beneficiary2);
 
-        uint256 tokenId3 = mockNFT.mint(_grantor);
-        mockNFT.approve(address(factory), tokenId3);
-        factory.depositERC721(address(mockNFT), tokenId3, beneficiary3);
+        uint256 tokenId3 = mockNft.mint(_grantor);
+        mockNft.approve(address(factory), tokenId3);
+        factory.depositERC721(address(mockNft), tokenId3, beneficiary3);
 
         // Check each beneficiary has correct asset
         (,,,, address stored1,) = factory.getAsset(_grantor, 0);
@@ -266,43 +266,43 @@ contract DepositERC721Test is Test {
 
     function testDepositERC721WithDifferentNFTCollections() public {
         // Create another NFT collection
-        MockERC721 mockNFT2 = new MockERC721("MockNFT2", "MNFT2");
+        MockERC721 mockNft2 = new MockERC721("MockNFT2", "MNFT2");
 
         vm.startPrank(_grantor);
 
         // Mint and deposit from first collection
-        uint256 tokenId1 = mockNFT.mint(_grantor);
-        mockNFT.approve(address(factory), tokenId1);
-        factory.depositERC721(address(mockNFT), tokenId1, _beneficiary);
+        uint256 tokenId1 = mockNft.mint(_grantor);
+        mockNft.approve(address(factory), tokenId1);
+        factory.depositERC721(address(mockNft), tokenId1, _beneficiary);
 
         // Mint and deposit from second collection
-        uint256 tokenId2 = mockNFT2.mint(_grantor);
-        mockNFT2.approve(address(factory), tokenId2);
-        factory.depositERC721(address(mockNFT2), tokenId2, _beneficiary);
+        uint256 tokenId2 = mockNft2.mint(_grantor);
+        mockNft2.approve(address(factory), tokenId2);
+        factory.depositERC721(address(mockNft2), tokenId2, _beneficiary);
 
         // Check both NFTs stored with correct addresses
         (, address token1,,,,) = factory.getAsset(_grantor, 0);
         (, address token2,,,,) = factory.getAsset(_grantor, 1);
 
-        assertEq(token1, address(mockNFT), "First token address should match");
-        assertEq(token2, address(mockNFT2), "Second token address should match");
+        assertEq(token1, address(mockNft), "First token address should match");
+        assertEq(token2, address(mockNft2), "Second token address should match");
 
         // Check ownership
-        assertEq(mockNFT.ownerOf(tokenId1), address(factory), "NFT 1 should be owned by contract");
-        assertEq(mockNFT2.ownerOf(tokenId2), address(factory), "NFT 2 should be owned by contract");
+        assertEq(mockNft.ownerOf(tokenId1), address(factory), "NFT 1 should be owned by contract");
+        assertEq(mockNft2.ownerOf(tokenId2), address(factory), "NFT 2 should be owned by contract");
 
         vm.stopPrank();
     }
 
     function testDepositERC721WithoutApprovalReverts() public {
         // Mint NFT to grantor
-        uint256 tokenId = mockNFT.mint(_grantor);
+        uint256 tokenId = mockNft.mint(_grantor);
 
         vm.startPrank(_grantor);
         // Don't approve the transfer
 
         vm.expectRevert();
-        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        factory.depositERC721(address(mockNft), tokenId, _beneficiary);
 
         vm.stopPrank();
     }
@@ -313,7 +313,7 @@ contract DepositERC721Test is Test {
         vm.startPrank(_grantor);
 
         vm.expectRevert();
-        factory.depositERC721(address(mockNFT), nonExistentTokenId, _beneficiary);
+        factory.depositERC721(address(mockNft), nonExistentTokenId, _beneficiary);
 
         vm.stopPrank();
     }
@@ -323,15 +323,15 @@ contract DepositERC721Test is Test {
         vm.deal(_grantor, 10 ether);
 
         // Deposit ETH
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
 
         // Deposit NFT
-        uint256 tokenId = mockNFT.mint(_grantor);
-        mockNFT.approve(address(factory), tokenId);
-        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        uint256 tokenId = mockNft.mint(_grantor);
+        mockNft.approve(address(factory), tokenId);
+        factory.depositERC721(address(mockNft), tokenId, _beneficiary);
 
         // Deposit more ETH
-        factory.depositETH{value: 2 ether}(_beneficiary);
+        factory.depositEth{value: 2 ether}(_beneficiary);
 
         // Check all assets stored correctly
         (DigitalWillFactory.AssetType type0,,,,,) = factory.getAsset(_grantor, 0);
@@ -361,15 +361,15 @@ contract DepositERC721Test is Test {
         vm.startPrank(_grantor);
 
         // Mint with specific token ID
-        mockNFT.mintWithId(_grantor, tokenId);
-        mockNFT.approve(address(factory), tokenId);
+        mockNft.mintWithId(_grantor, tokenId);
+        mockNft.approve(address(factory), tokenId);
 
-        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        factory.depositERC721(address(mockNft), tokenId, _beneficiary);
 
         // Verify storage
         (,, uint256 storedTokenId,,,) = factory.getAsset(_grantor, 0);
         assertEq(storedTokenId, tokenId, "Token ID should match");
-        assertEq(mockNFT.ownerOf(tokenId), address(factory), "Contract should own NFT");
+        assertEq(mockNft.ownerOf(tokenId), address(factory), "Contract should own NFT");
 
         vm.stopPrank();
     }
@@ -386,14 +386,14 @@ contract DepositERC721Test is Test {
         vm.startPrank(_grantor);
 
         // Mint and deposit to first beneficiary
-        uint256 tokenId1 = mockNFT.mint(_grantor);
-        mockNFT.approve(address(factory), tokenId1);
-        factory.depositERC721(address(mockNFT), tokenId1, beneficiary1);
+        uint256 tokenId1 = mockNft.mint(_grantor);
+        mockNft.approve(address(factory), tokenId1);
+        factory.depositERC721(address(mockNft), tokenId1, beneficiary1);
 
         // Mint and deposit to second beneficiary
-        uint256 tokenId2 = mockNFT.mint(_grantor);
-        mockNFT.approve(address(factory), tokenId2);
-        factory.depositERC721(address(mockNFT), tokenId2, beneficiary2);
+        uint256 tokenId2 = mockNft.mint(_grantor);
+        mockNft.approve(address(factory), tokenId2);
+        factory.depositERC721(address(mockNft), tokenId2, beneficiary2);
 
         // Verify storage
         (,,,, address stored1,) = factory.getAsset(_grantor, 0);
@@ -412,15 +412,15 @@ contract DepositERC721Test is Test {
         vm.startPrank(_grantor);
 
         for (uint256 i = 0; i < numTokens; i++) {
-            uint256 tokenId = mockNFT.mint(_grantor);
-            mockNFT.approve(address(factory), tokenId);
-            factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
+            uint256 tokenId = mockNft.mint(_grantor);
+            mockNft.approve(address(factory), tokenId);
+            factory.depositERC721(address(mockNft), tokenId, _beneficiary);
         }
 
         // Verify all tokens deposited
         uint256[] memory nftAssetIndices = factory.getBeneficiaryAssets(_grantor, _beneficiary);
         for (uint256 i = 0; i < numTokens; i++) {
-            assertEq(mockNFT.ownerOf(i), address(factory), "Contract should own all NFTs");
+            assertEq(mockNft.ownerOf(i), address(factory), "Contract should own all NFTs");
             assertEq(nftAssetIndices[i], i, "Asset indices should match");
         }
 

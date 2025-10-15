@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-import {Test, console} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {DigitalWillFactory} from "../src/DigitalWillFactory.sol";
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -36,7 +36,7 @@ contract MockERC721 is ERC721 {
 contract GetBeneficiaryAssetsTest is Test {
     DigitalWillFactory public factory;
     MockERC20 public mockToken;
-    MockERC721 public mockNFT;
+    MockERC721 public mockNft;
 
     address public _grantor;
     address public _randomUser;
@@ -49,7 +49,7 @@ contract GetBeneficiaryAssetsTest is Test {
 
         // Deploy mock contracts
         mockToken = new MockERC20("MockToken", "MTK");
-        mockNFT = new MockERC721("MockNFT", "MNFT");
+        mockNft = new MockERC721("MockNFT", "MNFT");
 
         // Deploy factory
         factory = new DigitalWillFactory();
@@ -81,7 +81,7 @@ contract GetBeneficiaryAssetsTest is Test {
     function testGetBeneficiaryAssetsAfterSingleETHDeposit() public {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
         uint256[] memory assets = factory.getBeneficiaryAssets(_grantor, _beneficiary);
@@ -93,9 +93,9 @@ contract GetBeneficiaryAssetsTest is Test {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
 
-        factory.depositETH{value: 1 ether}(_beneficiary);
-        factory.depositETH{value: 2 ether}(_beneficiary);
-        factory.depositETH{value: 3 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 2 ether}(_beneficiary);
+        factory.depositEth{value: 3 ether}(_beneficiary);
 
         vm.stopPrank();
 
@@ -111,7 +111,7 @@ contract GetBeneficiaryAssetsTest is Test {
         vm.deal(_grantor, 10 ether);
 
         // Deposit ETH
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
 
         // Deposit ERC20
         uint256 tokenAmount = 1000 * 10 ** 18;
@@ -120,9 +120,9 @@ contract GetBeneficiaryAssetsTest is Test {
         factory.depositERC20(address(mockToken), tokenAmount, _beneficiary);
 
         // Deposit ERC721
-        uint256 nftTokenId = mockNFT.mint(_grantor);
-        mockNFT.approve(address(factory), nftTokenId);
-        factory.depositERC721(address(mockNFT), nftTokenId, _beneficiary);
+        uint256 nftTokenId = mockNft.mint(_grantor);
+        mockNft.approve(address(factory), nftTokenId);
+        factory.depositERC721(address(mockNft), nftTokenId, _beneficiary);
 
         vm.stopPrank();
 
@@ -142,14 +142,14 @@ contract GetBeneficiaryAssetsTest is Test {
         vm.deal(_grantor, 10 ether);
 
         // Deposit to beneficiary1
-        factory.depositETH{value: 1 ether}(beneficiary1);
+        factory.depositEth{value: 1 ether}(beneficiary1);
 
         // Deposit to beneficiary2
-        factory.depositETH{value: 2 ether}(beneficiary2);
-        factory.depositETH{value: 2 ether}(beneficiary2);
+        factory.depositEth{value: 2 ether}(beneficiary2);
+        factory.depositEth{value: 2 ether}(beneficiary2);
 
         // Deposit to beneficiary3
-        factory.depositETH{value: 3 ether}(beneficiary3);
+        factory.depositEth{value: 3 ether}(beneficiary3);
 
         vm.stopPrank();
 
@@ -174,9 +174,9 @@ contract GetBeneficiaryAssetsTest is Test {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
 
-        factory.depositETH{value: 1 ether}(_beneficiary);
-        factory.depositETH{value: 2 ether}(_beneficiary);
-        factory.depositETH{value: 3 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 2 ether}(_beneficiary);
+        factory.depositEth{value: 3 ether}(_beneficiary);
 
         vm.stopPrank();
 
@@ -201,8 +201,8 @@ contract GetBeneficiaryAssetsTest is Test {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
 
-        factory.depositETH{value: 1 ether}(_beneficiary);
-        factory.depositETH{value: 2 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 2 ether}(_beneficiary);
 
         vm.stopPrank();
 
@@ -230,11 +230,11 @@ contract GetBeneficiaryAssetsTest is Test {
         vm.deal(_grantor, 10 ether);
 
         // Interleave deposits between two beneficiaries
-        factory.depositETH{value: 1 ether}(beneficiary1); // index 0
-        factory.depositETH{value: 2 ether}(beneficiary2); // index 1
-        factory.depositETH{value: 1 ether}(beneficiary1); // index 2
-        factory.depositETH{value: 2 ether}(beneficiary2); // index 3
-        factory.depositETH{value: 1 ether}(beneficiary1); // index 4
+        factory.depositEth{value: 1 ether}(beneficiary1); // index 0
+        factory.depositEth{value: 2 ether}(beneficiary2); // index 1
+        factory.depositEth{value: 1 ether}(beneficiary1); // index 2
+        factory.depositEth{value: 2 ether}(beneficiary2); // index 3
+        factory.depositEth{value: 1 ether}(beneficiary1); // index 4
 
         vm.stopPrank();
 
@@ -262,9 +262,9 @@ contract GetBeneficiaryAssetsTest is Test {
         factory.depositERC20(address(mockToken), tokenAmount1, _beneficiary);
 
         // Deposit ERC721
-        uint256 nftTokenId = mockNFT.mint(_grantor);
-        mockNFT.approve(address(factory), nftTokenId);
-        factory.depositERC721(address(mockNFT), nftTokenId, _beneficiary);
+        uint256 nftTokenId = mockNft.mint(_grantor);
+        mockNft.approve(address(factory), nftTokenId);
+        factory.depositERC721(address(mockNft), nftTokenId, _beneficiary);
 
         // Deposit another ERC20
         uint256 tokenAmount2 = 2000 * 10 ** 18;
@@ -300,8 +300,8 @@ contract GetBeneficiaryAssetsTest is Test {
         vm.deal(_grantor, 10 ether);
 
         // Only deposit to beneficiary1 and beneficiary2
-        factory.depositETH{value: 1 ether}(beneficiary1);
-        factory.depositETH{value: 2 ether}(beneficiary2);
+        factory.depositEth{value: 1 ether}(beneficiary1);
+        factory.depositEth{value: 2 ether}(beneficiary2);
 
         vm.stopPrank();
 
@@ -327,7 +327,7 @@ contract GetBeneficiaryAssetsTest is Test {
         vm.deal(_grantor, uint256(numAssets) * 1 ether);
 
         for (uint256 i = 0; i < numAssets; i++) {
-            factory.depositETH{value: 1 ether}(_beneficiary);
+            factory.depositEth{value: 1 ether}(_beneficiary);
         }
 
         vm.stopPrank();
@@ -358,7 +358,7 @@ contract GetBeneficiaryAssetsTest is Test {
             uint256 numAssetsForBeneficiary = (i % 3) + 1;
 
             for (uint256 j = 0; j < numAssetsForBeneficiary; j++) {
-                factory.depositETH{value: 1 ether}(beneficiaries[i]);
+                factory.depositEth{value: 1 ether}(beneficiaries[i]);
                 assetIndex++;
             }
         }
@@ -389,7 +389,7 @@ contract GetBeneficiaryAssetsTest is Test {
         vm.deal(_grantor, uint256(numAssets) * 1 ether);
 
         for (uint256 i = 0; i < numAssets; i++) {
-            factory.depositETH{value: 1 ether}(_beneficiary);
+            factory.depositEth{value: 1 ether}(_beneficiary);
         }
 
         vm.stopPrank();
@@ -432,12 +432,12 @@ contract GetBeneficiaryAssetsTest is Test {
         uint256 assetIndex = 0;
         for (uint256 i = 0; i < numRounds; i++) {
             // Deposit to beneficiary1
-            factory.depositETH{value: 1 ether}(beneficiary1);
+            factory.depositEth{value: 1 ether}(beneficiary1);
             expectedIndicesBen1[i] = assetIndex;
             assetIndex++;
 
             // Deposit to beneficiary2
-            factory.depositETH{value: 1 ether}(beneficiary2);
+            factory.depositEth{value: 1 ether}(beneficiary2);
             expectedIndicesBen2[i] = assetIndex;
             assetIndex++;
         }
@@ -459,20 +459,20 @@ contract GetBeneficiaryAssetsTest is Test {
         }
     }
 
-    function testFuzzGetBeneficiaryAssetsWithMixedTypes(uint8 numETH, uint8 numERC20, uint8 numERC721) public {
+    function testFuzzGetBeneficiaryAssetsWithMixedTypes(uint8 numEth, uint8 numERC20, uint8 numERC721) public {
         // Bound each type to reasonable numbers
-        numETH = uint8(bound(numETH, 0, 15));
+        numEth = uint8(bound(numEth, 0, 15));
         numERC20 = uint8(bound(numERC20, 0, 15));
         numERC721 = uint8(bound(numERC721, 0, 15));
 
-        uint256 totalAssets = uint256(numETH) + uint256(numERC20) + uint256(numERC721);
+        uint256 totalAssets = uint256(numEth) + uint256(numERC20) + uint256(numERC721);
 
         vm.startPrank(_grantor);
-        vm.deal(_grantor, uint256(numETH) * 1 ether);
+        vm.deal(_grantor, uint256(numEth) * 1 ether);
 
         // Deposit ETH
-        for (uint256 i = 0; i < numETH; i++) {
-            factory.depositETH{value: 1 ether}(_beneficiary);
+        for (uint256 i = 0; i < numEth; i++) {
+            factory.depositEth{value: 1 ether}(_beneficiary);
         }
 
         // Deposit ERC20
@@ -485,9 +485,9 @@ contract GetBeneficiaryAssetsTest is Test {
 
         // Deposit ERC721
         for (uint256 i = 0; i < numERC721; i++) {
-            uint256 tokenId = mockNFT.mint(_grantor);
-            mockNFT.approve(address(factory), tokenId);
-            factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
+            uint256 tokenId = mockNft.mint(_grantor);
+            mockNft.approve(address(factory), tokenId);
+            factory.depositERC721(address(mockNft), tokenId, _beneficiary);
         }
 
         vm.stopPrank();

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-import {Test, console} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {DigitalWillFactory} from "../src/DigitalWillFactory.sol";
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -44,7 +44,7 @@ contract MockBeneficiary {
 contract ApproveContractBeneficiaryTest is Test {
     DigitalWillFactory public factory;
     MockERC20 public mockToken;
-    MockERC721 public mockNFT;
+    MockERC721 public mockNft;
     MockBeneficiary public mockBeneficiary;
 
     address public grantor;
@@ -61,7 +61,7 @@ contract ApproveContractBeneficiaryTest is Test {
 
         // Deploy mock contracts
         mockToken = new MockERC20("MockToken", "MTK");
-        mockNFT = new MockERC721("MockNFT", "MNFT");
+        mockNft = new MockERC721("MockNFT", "MNFT");
         mockBeneficiary = new MockBeneficiary();
 
         // Deploy factory
@@ -132,9 +132,9 @@ contract ApproveContractBeneficiaryTest is Test {
     // Test that NFT contract can be approved as beneficiary
     function testApproveNFTContractAsBeneficiary() public {
         vm.prank(grantor);
-        factory.approveContractBeneficiary(address(mockNFT));
+        factory.approveContractBeneficiary(address(mockNft));
 
-        bool isApproved = factory.isApprovedBeneficiary(grantor, address(mockNFT));
+        bool isApproved = factory.isApprovedBeneficiary(grantor, address(mockNft));
         assertTrue(isApproved, "NFT contract should be approved as beneficiary");
     }
 
@@ -168,7 +168,7 @@ contract ApproveContractBeneficiaryTest is Test {
         factory.approveContractBeneficiary(address(mockBeneficiary));
 
         // Deposit ETH to approved contract beneficiary
-        factory.depositETH{value: 1 ether}(address(mockBeneficiary));
+        factory.depositEth{value: 1 ether}(address(mockBeneficiary));
         vm.stopPrank();
 
         // Verify the asset was deposited
@@ -192,7 +192,7 @@ contract ApproveContractBeneficiaryTest is Test {
 
         vm.prank(grantor);
         vm.expectRevert("Contract beneficiary not approved. Use approveContractBeneficiary first");
-        factory.depositETH{value: 1 ether}(address(mockBeneficiary));
+        factory.depositEth{value: 1 ether}(address(mockBeneficiary));
     }
 
     // Test that different grantors can approve the same contract independently

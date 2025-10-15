@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-import {Test, console} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {DigitalWillFactory} from "../src/DigitalWillFactory.sol";
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -36,7 +36,7 @@ contract MockERC721 is ERC721 {
 contract EmergencyWithdrawTest is Test {
     DigitalWillFactory public factory;
     MockERC20 public mockToken;
-    MockERC721 public mockNFT;
+    MockERC721 public mockNft;
 
     address public _grantor;
     address public _randomUser;
@@ -52,7 +52,7 @@ contract EmergencyWithdrawTest is Test {
 
         // Deploy mock contracts
         mockToken = new MockERC20("MockToken", "MTK");
-        mockNFT = new MockERC721("MockNFT", "MNFT");
+        mockNft = new MockERC721("MockNFT", "MNFT");
 
         // Deploy factory
         factory = new DigitalWillFactory();
@@ -79,7 +79,7 @@ contract EmergencyWithdrawTest is Test {
         // Deposit an asset
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
         // Beneficiary accepts designation
@@ -104,7 +104,7 @@ contract EmergencyWithdrawTest is Test {
         // Deposit ETH
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: depositAmount}(_beneficiary);
+        factory.depositEth{value: depositAmount}(_beneficiary);
         vm.stopPrank();
 
         // Record initial balances
@@ -163,10 +163,10 @@ contract EmergencyWithdrawTest is Test {
 
     function testEmergencyWithdrawERC721Successfully() public {
         // Deposit ERC721
-        uint256 tokenId = mockNFT.mint(_grantor);
+        uint256 tokenId = mockNft.mint(_grantor);
         vm.startPrank(_grantor);
-        mockNFT.approve(address(factory), tokenId);
-        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        mockNft.approve(address(factory), tokenId);
+        factory.depositERC721(address(mockNft), tokenId, _beneficiary);
         vm.stopPrank();
 
         // Emergency withdraw
@@ -174,7 +174,7 @@ contract EmergencyWithdrawTest is Test {
         factory.emergencyWithdraw();
 
         // Verify NFT transferred back
-        assertEq(mockNFT.ownerOf(tokenId), _grantor, "Grantor should own the NFT again");
+        assertEq(mockNft.ownerOf(tokenId), _grantor, "Grantor should own the NFT again");
 
         // Verify asset marked as claimed
         (,,,,, bool claimed) = factory.getAsset(_grantor, 0);
@@ -187,7 +187,7 @@ contract EmergencyWithdrawTest is Test {
         vm.deal(_grantor, 10 ether);
 
         // Deposit ETH
-        factory.depositETH{value: 2 ether}(_beneficiary);
+        factory.depositEth{value: 2 ether}(_beneficiary);
 
         // Deposit ERC20
         uint256 tokenAmount = 1000 * 10 ** 18;
@@ -196,14 +196,14 @@ contract EmergencyWithdrawTest is Test {
         factory.depositERC20(address(mockToken), tokenAmount, _beneficiary);
 
         // Deposit ERC721
-        uint256 tokenId = mockNFT.mint(_grantor);
-        mockNFT.approve(address(factory), tokenId);
-        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        uint256 tokenId = mockNft.mint(_grantor);
+        mockNft.approve(address(factory), tokenId);
+        factory.depositERC721(address(mockNft), tokenId, _beneficiary);
 
         vm.stopPrank();
 
         // Record initial balances
-        uint256 grantorETHBefore = _grantor.balance;
+        uint256 grantorEthBefore = _grantor.balance;
         uint256 grantorTokenBefore = mockToken.balanceOf(_grantor);
 
         // Emergency withdraw
@@ -211,9 +211,9 @@ contract EmergencyWithdrawTest is Test {
         factory.emergencyWithdraw();
 
         // Verify all assets returned
-        assertEq(_grantor.balance, grantorETHBefore + 2 ether, "Grantor should receive ETH back");
+        assertEq(_grantor.balance, grantorEthBefore + 2 ether, "Grantor should receive ETH back");
         assertEq(mockToken.balanceOf(_grantor), grantorTokenBefore + tokenAmount, "Grantor should receive tokens back");
-        assertEq(mockNFT.ownerOf(tokenId), _grantor, "Grantor should own NFT again");
+        assertEq(mockNft.ownerOf(tokenId), _grantor, "Grantor should own NFT again");
 
         // Verify all assets marked as claimed
         (,,,,, bool claimed0) = factory.getAsset(_grantor, 0);
@@ -232,9 +232,9 @@ contract EmergencyWithdrawTest is Test {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
 
-        factory.depositETH{value: 1 ether}(beneficiary1);
-        factory.depositETH{value: 2 ether}(beneficiary2);
-        factory.depositETH{value: 3 ether}(beneficiary1);
+        factory.depositEth{value: 1 ether}(beneficiary1);
+        factory.depositEth{value: 2 ether}(beneficiary2);
+        factory.depositEth{value: 3 ether}(beneficiary1);
 
         vm.stopPrank();
 
@@ -256,9 +256,9 @@ contract EmergencyWithdrawTest is Test {
         // Deposit multiple assets
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
-        factory.depositETH{value: 2 ether}(_beneficiary);
-        factory.depositETH{value: 3 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 2 ether}(_beneficiary);
+        factory.depositEth{value: 3 ether}(_beneficiary);
         vm.stopPrank();
 
         // Beneficiary accepts designation
@@ -288,7 +288,7 @@ contract EmergencyWithdrawTest is Test {
         // Deposit assets while will is ACTIVE
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 5 ether}(_beneficiary);
+        factory.depositEth{value: 5 ether}(_beneficiary);
         vm.stopPrank();
 
         // Verify will is ACTIVE
@@ -313,7 +313,7 @@ contract EmergencyWithdrawTest is Test {
         // Deposit assets
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 5 ether}(_beneficiary);
+        factory.depositEth{value: 5 ether}(_beneficiary);
         vm.stopPrank();
 
         // Make will CLAIMABLE
@@ -336,7 +336,7 @@ contract EmergencyWithdrawTest is Test {
         // Deposit assets
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 5 ether}(_beneficiary);
+        factory.depositEth{value: 5 ether}(_beneficiary);
         vm.stopPrank();
 
         // Time travel past heartbeat WITHOUT updating state
@@ -361,9 +361,9 @@ contract EmergencyWithdrawTest is Test {
         // Deposit 3 assets
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
-        factory.depositETH{value: 2 ether}(_beneficiary);
-        factory.depositETH{value: 3 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 2 ether}(_beneficiary);
+        factory.depositEth{value: 3 ether}(_beneficiary);
         vm.stopPrank();
 
         // Expect event with correct number of assets returned
@@ -391,7 +391,7 @@ contract EmergencyWithdrawTest is Test {
         // Deposit assets
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 5 ether}(_beneficiary);
+        factory.depositEth{value: 5 ether}(_beneficiary);
         vm.stopPrank();
 
         // First emergency withdraw
@@ -411,7 +411,7 @@ contract EmergencyWithdrawTest is Test {
 
         vm.startPrank(_grantor);
         vm.deal(_grantor, amount);
-        factory.depositETH{value: amount}(_beneficiary);
+        factory.depositEth{value: amount}(_beneficiary);
         vm.stopPrank();
 
         uint256 grantorBalanceBefore = _grantor.balance;
@@ -430,7 +430,7 @@ contract EmergencyWithdrawTest is Test {
         vm.deal(_grantor, uint256(numAssets) * 1 ether);
 
         for (uint256 i = 0; i < numAssets; i++) {
-            factory.depositETH{value: 1 ether}(_beneficiary);
+            factory.depositEth{value: 1 ether}(_beneficiary);
         }
         vm.stopPrank();
 

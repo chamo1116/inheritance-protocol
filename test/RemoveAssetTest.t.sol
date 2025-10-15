@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-import {Test, console} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {DigitalWillFactory} from "../src/DigitalWillFactory.sol";
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -32,7 +32,7 @@ contract MockERC721 is ERC721 {
 contract RemoveAssetTest is Test {
     DigitalWillFactory public factory;
     MockERC20 public mockToken;
-    MockERC721 public mockNFT;
+    MockERC721 public mockNft;
 
     address public _grantor;
     address public _beneficiary;
@@ -55,7 +55,7 @@ contract RemoveAssetTest is Test {
 
         // Deploy mock contracts
         mockToken = new MockERC20("MockToken", "MTK");
-        mockNFT = new MockERC721("MockNFT", "MNFT");
+        mockNft = new MockERC721("MockNFT", "MNFT");
 
         // Deploy factory
         factory = new DigitalWillFactory();
@@ -75,7 +75,7 @@ contract RemoveAssetTest is Test {
     function testRemoveETHAssetSuccessfully() public {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
 
         uint256 balanceBefore = _grantor.balance;
         factory.removeAsset(0);
@@ -110,16 +110,16 @@ contract RemoveAssetTest is Test {
 
     function testRemoveERC721AssetSuccessfully() public {
         // Mint and deposit NFT
-        uint256 tokenId = mockNFT.mint(_grantor);
+        uint256 tokenId = mockNft.mint(_grantor);
         vm.startPrank(_grantor);
-        mockNFT.approve(address(factory), tokenId);
-        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        mockNft.approve(address(factory), tokenId);
+        factory.depositERC721(address(mockNft), tokenId, _beneficiary);
 
         factory.removeAsset(0);
         vm.stopPrank();
 
         // Verify NFT returned to grantor
-        assertEq(mockNFT.ownerOf(tokenId), _grantor, "NFT should be returned to grantor");
+        assertEq(mockNft.ownerOf(tokenId), _grantor, "NFT should be returned to grantor");
 
         // Verify asset marked as claimed
         (,,,,, bool claimed) = factory.getAsset(_grantor, 0);
@@ -129,7 +129,7 @@ contract RemoveAssetTest is Test {
     function testRemoveAssetEmitsEvent() public {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
 
         vm.expectEmit(true, true, true, true);
         emit AssetRemoved(_grantor, 0, DigitalWillFactory.AssetType.ETH, address(0), 0, 1 ether);
@@ -140,28 +140,28 @@ contract RemoveAssetTest is Test {
 
     function testRemoveAssetAllowsRedeposit() public {
         // Mint and deposit NFT
-        uint256 tokenId = mockNFT.mint(_grantor);
+        uint256 tokenId = mockNft.mint(_grantor);
         vm.startPrank(_grantor);
-        mockNFT.approve(address(factory), tokenId);
-        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        mockNft.approve(address(factory), tokenId);
+        factory.depositERC721(address(mockNft), tokenId, _beneficiary);
 
         // Remove asset
         factory.removeAsset(0);
 
         // Should be able to deposit the same NFT again
-        mockNFT.approve(address(factory), tokenId);
-        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        mockNft.approve(address(factory), tokenId);
+        factory.depositERC721(address(mockNft), tokenId, _beneficiary);
         vm.stopPrank();
 
         // Verify NFT is deposited again
-        assertEq(mockNFT.ownerOf(tokenId), address(factory), "NFT should be in contract");
+        assertEq(mockNft.ownerOf(tokenId), address(factory), "NFT should be in contract");
     }
 
     function testRemoveAssetDecrementsUnclaimedCount() public {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
-        factory.depositETH{value: 2 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 2 ether}(_beneficiary);
         vm.stopPrank();
 
         // Get initial asset count
@@ -181,7 +181,7 @@ contract RemoveAssetTest is Test {
     function testRemoveAssetRevertsWhenNotGrantor() public {
         vm.prank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
 
         vm.prank(_randomUser);
         vm.expectRevert("Will does not exist");
@@ -191,7 +191,7 @@ contract RemoveAssetTest is Test {
     function testRemoveAssetRevertsWhenWillNotActive() public {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
         // Make will claimable
@@ -213,7 +213,7 @@ contract RemoveAssetTest is Test {
     function testRemoveAssetRevertsWhenAlreadyClaimed() public {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
 
         // Remove once
         factory.removeAsset(0);
@@ -227,7 +227,7 @@ contract RemoveAssetTest is Test {
     function testRemoveAssetRevertsAfterBeneficiaryClaimed() public {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
         // Beneficiary accepts designation
@@ -252,9 +252,9 @@ contract RemoveAssetTest is Test {
         vm.deal(_grantor, 10 ether);
 
         // Deposit multiple assets
-        factory.depositETH{value: 1 ether}(_beneficiary);
-        factory.depositETH{value: 2 ether}(_beneficiary);
-        factory.depositETH{value: 3 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 2 ether}(_beneficiary);
+        factory.depositEth{value: 3 ether}(_beneficiary);
 
         uint256 balanceBefore = _grantor.balance;
 
@@ -279,9 +279,9 @@ contract RemoveAssetTest is Test {
         vm.deal(_grantor, 10 ether);
 
         // Deposit multiple assets
-        factory.depositETH{value: 1 ether}(_beneficiary);
-        factory.depositETH{value: 2 ether}(_beneficiary);
-        factory.depositETH{value: 3 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 2 ether}(_beneficiary);
+        factory.depositEth{value: 3 ether}(_beneficiary);
 
         uint256 balanceBefore = _grantor.balance;
 
@@ -307,17 +307,17 @@ contract RemoveAssetTest is Test {
     function testRemoveMixedAssetTypes() public {
         // Setup different asset types
         mockToken.mint(_grantor, 1000e18);
-        uint256 tokenId = mockNFT.mint(_grantor);
+        uint256 tokenId = mockNft.mint(_grantor);
 
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
 
         // Deposit different types
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
         mockToken.approve(address(factory), 1000e18);
         factory.depositERC20(address(mockToken), 100e18, _beneficiary);
-        mockNFT.approve(address(factory), tokenId);
-        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        mockNft.approve(address(factory), tokenId);
+        factory.depositERC721(address(mockNft), tokenId, _beneficiary);
 
         uint256 ethBalance = _grantor.balance;
         uint256 tokenBalance = mockToken.balanceOf(_grantor);
@@ -331,7 +331,7 @@ contract RemoveAssetTest is Test {
         // Verify all returned
         assertEq(_grantor.balance, ethBalance + 1 ether, "ETH should be returned");
         assertEq(mockToken.balanceOf(_grantor), tokenBalance + 100e18, "ERC20 should be returned");
-        assertEq(mockNFT.ownerOf(tokenId), _grantor, "NFT should be returned");
+        assertEq(mockNft.ownerOf(tokenId), _grantor, "NFT should be returned");
     }
 
     // Integration with other features
@@ -340,11 +340,11 @@ contract RemoveAssetTest is Test {
         vm.deal(_grantor, 10 ether);
 
         // Deposit and remove
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
         factory.removeAsset(0);
 
         // Deposit again
-        factory.depositETH{value: 2 ether}(_beneficiary);
+        factory.depositEth{value: 2 ether}(_beneficiary);
         vm.stopPrank();
 
         // Should have 2 assets now (first is claimed, second is new)
@@ -360,7 +360,7 @@ contract RemoveAssetTest is Test {
     function testRemoveAssetThenCheckIn() public {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
 
         (uint256 lastCheckIn1,,,) = factory.getWillInfo(_grantor);
 
@@ -382,8 +382,8 @@ contract RemoveAssetTest is Test {
         vm.deal(_grantor, 10 ether);
 
         // Deposit for two different beneficiaries
-        factory.depositETH{value: 1 ether}(_beneficiary);
-        factory.depositETH{value: 2 ether}(beneficiary2);
+        factory.depositEth{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 2 ether}(beneficiary2);
 
         // Remove first asset
         factory.removeAsset(0);
@@ -415,7 +415,7 @@ contract RemoveAssetTest is Test {
 
         // Deposit multiple assets
         for (uint8 i = 0; i < assetCount; i++) {
-            factory.depositETH{value: 1 ether}(_beneficiary);
+            factory.depositEth{value: 1 ether}(_beneficiary);
         }
 
         uint256 balanceBefore = _grantor.balance;
@@ -444,7 +444,7 @@ contract RemoveAssetTest is Test {
 
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
         // Warp to some point during active period
@@ -466,7 +466,7 @@ contract RemoveAssetTest is Test {
 
         // Deposit assets
         for (uint8 i = 0; i < assetCount; i++) {
-            factory.depositETH{value: 1 ether}(_beneficiary);
+            factory.depositEth{value: 1 ether}(_beneficiary);
         }
 
         uint256 balanceBefore = _grantor.balance;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-import {Test, console} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {DigitalWillFactory} from "../src/DigitalWillFactory.sol";
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -44,7 +44,7 @@ contract MockBeneficiary {
 contract RevokeContractBeneficiaryTest is Test {
     DigitalWillFactory public factory;
     MockERC20 public mockToken;
-    MockERC721 public mockNFT;
+    MockERC721 public mockNft;
     MockBeneficiary public mockBeneficiary;
 
     address public grantor;
@@ -61,7 +61,7 @@ contract RevokeContractBeneficiaryTest is Test {
 
         // Deploy mock contracts
         mockToken = new MockERC20("MockToken", "MTK");
-        mockNFT = new MockERC721("MockNFT", "MNFT");
+        mockNft = new MockERC721("MockNFT", "MNFT");
         mockBeneficiary = new MockBeneficiary();
 
         // Deploy factory
@@ -167,14 +167,14 @@ contract RevokeContractBeneficiaryTest is Test {
 
         // Approve and deposit successfully
         factory.approveContractBeneficiary(address(mockBeneficiary));
-        factory.depositETH{value: 1 ether}(address(mockBeneficiary));
+        factory.depositEth{value: 1 ether}(address(mockBeneficiary));
 
         // Revoke approval
         factory.revokeContractBeneficiary(address(mockBeneficiary));
 
         // Try to deposit again - should fail
         vm.expectRevert("Contract beneficiary not approved. Use approveContractBeneficiary first");
-        factory.depositETH{value: 1 ether}(address(mockBeneficiary));
+        factory.depositEth{value: 1 ether}(address(mockBeneficiary));
 
         vm.stopPrank();
     }
@@ -264,7 +264,7 @@ contract RevokeContractBeneficiaryTest is Test {
 
         // Approve and deposit
         factory.approveContractBeneficiary(address(mockBeneficiary));
-        factory.depositETH{value: 1 ether}(address(mockBeneficiary));
+        factory.depositEth{value: 1 ether}(address(mockBeneficiary));
 
         // Verify deposit exists
         uint256 assetCount = factory.getAssetCount(grantor);

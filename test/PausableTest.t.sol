@@ -108,7 +108,7 @@ contract PausableTest is Test {
     }
 
     /**
-     * Test that depositETH is blocked when paused
+     * Test that depositEth is blocked when paused
      */
     function testDepositETHRevertsWhenPaused() public {
         vm.prank(grantor);
@@ -119,11 +119,11 @@ contract PausableTest is Test {
         vm.deal(grantor, 1 ether);
         vm.prank(grantor);
         vm.expectRevert();
-        willFactory.depositETH{value: 1 ether}(beneficiary);
+        willFactory.depositEth{value: 1 ether}(beneficiary);
     }
 
     /**
-     * Test that depositETH works after unpause
+     * Test that depositEth works after unpause
      */
     function testDepositETHWorksAfterUnpause() public {
         vm.prank(grantor);
@@ -134,7 +134,7 @@ contract PausableTest is Test {
 
         vm.deal(grantor, 1 ether);
         vm.prank(grantor);
-        willFactory.depositETH{value: 1 ether}(beneficiary);
+        willFactory.depositEth{value: 1 ether}(beneficiary);
 
         assertEq(willFactory.getAssetCount(grantor), 1);
     }
@@ -149,7 +149,7 @@ contract PausableTest is Test {
 
         vm.deal(grantor, 1 ether);
         vm.prank(grantor);
-        willFactory.depositETH{value: 1 ether}(beneficiary);
+        willFactory.depositEth{value: 1 ether}(beneficiary);
 
         // Fast forward to make will claimable
         vm.warp(block.timestamp + HEARTBEAT_INTERVAL + 1);
@@ -173,7 +173,7 @@ contract PausableTest is Test {
 
         vm.deal(grantor, 1 ether);
         vm.prank(grantor);
-        willFactory.depositETH{value: 1 ether}(beneficiary);
+        willFactory.depositEth{value: 1 ether}(beneficiary);
 
         // Beneficiary accepts designation
         _acceptBeneficiary(beneficiary, grantor);
@@ -216,7 +216,7 @@ contract PausableTest is Test {
 
         vm.deal(grantor, 1 ether);
         vm.prank(grantor);
-        willFactory.depositETH{value: 1 ether}(beneficiary);
+        willFactory.depositEth{value: 1 ether}(beneficiary);
 
         willFactory.pause();
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-import {Test, console} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {DigitalWillFactory} from "../src/DigitalWillFactory.sol";
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -32,7 +32,7 @@ contract MockERC721 is ERC721 {
 contract UpdateBeneficiaryTest is Test {
     DigitalWillFactory public factory;
     MockERC20 public mockToken;
-    MockERC721 public mockNFT;
+    MockERC721 public mockNft;
 
     address public _grantor;
     address public _beneficiary1;
@@ -52,7 +52,7 @@ contract UpdateBeneficiaryTest is Test {
 
         // Deploy mock contracts
         mockToken = new MockERC20("MockToken", "MTK");
-        mockNFT = new MockERC721("MockNFT", "MNFT");
+        mockNft = new MockERC721("MockNFT", "MNFT");
 
         // Deploy factory
         factory = new DigitalWillFactory();
@@ -73,7 +73,7 @@ contract UpdateBeneficiaryTest is Test {
         // Deposit ETH asset
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary1);
+        factory.depositEth{value: 1 ether}(_beneficiary1);
 
         // Update beneficiary
         factory.updateBeneficiary(0, _beneficiary2);
@@ -87,7 +87,7 @@ contract UpdateBeneficiaryTest is Test {
     function testUpdateBeneficiaryEmitsEvent() public {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary1);
+        factory.depositEth{value: 1 ether}(_beneficiary1);
 
         vm.expectEmit(true, true, true, true);
         emit BeneficiaryUpdated(_grantor, 0, _beneficiary1, _beneficiary2);
@@ -114,10 +114,10 @@ contract UpdateBeneficiaryTest is Test {
 
     function testUpdateBeneficiaryForERC721() public {
         // Mint and deposit NFT
-        uint256 tokenId = mockNFT.mint(_grantor);
+        uint256 tokenId = mockNft.mint(_grantor);
         vm.startPrank(_grantor);
-        mockNFT.approve(address(factory), tokenId);
-        factory.depositERC721(address(mockNFT), tokenId, _beneficiary1);
+        mockNft.approve(address(factory), tokenId);
+        factory.depositERC721(address(mockNft), tokenId, _beneficiary1);
 
         // Update beneficiary
         factory.updateBeneficiary(0, _beneficiary2);
@@ -132,7 +132,7 @@ contract UpdateBeneficiaryTest is Test {
     function testUpdateBeneficiaryRevertsWhenNotGrantor() public {
         vm.prank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary1);
+        factory.depositEth{value: 1 ether}(_beneficiary1);
 
         vm.prank(_randomUser);
         vm.expectRevert("Will does not exist");
@@ -142,7 +142,7 @@ contract UpdateBeneficiaryTest is Test {
     function testUpdateBeneficiaryRevertsWhenWillNotActive() public {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary1);
+        factory.depositEth{value: 1 ether}(_beneficiary1);
         vm.stopPrank();
 
         // Make will claimable
@@ -164,7 +164,7 @@ contract UpdateBeneficiaryTest is Test {
     function testUpdateBeneficiaryRevertsWhenAssetAlreadyClaimed() public {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary1);
+        factory.depositEth{value: 1 ether}(_beneficiary1);
         vm.stopPrank();
 
         // Beneficiary accepts designation
@@ -186,7 +186,7 @@ contract UpdateBeneficiaryTest is Test {
     function testUpdateBeneficiaryRevertsWhenSameBeneficiary() public {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary1);
+        factory.depositEth{value: 1 ether}(_beneficiary1);
 
         vm.expectRevert("New beneficiary must be different");
         factory.updateBeneficiary(0, _beneficiary1);
@@ -196,7 +196,7 @@ contract UpdateBeneficiaryTest is Test {
     function testUpdateBeneficiaryRevertsWithZeroAddress() public {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary1);
+        factory.depositEth{value: 1 ether}(_beneficiary1);
 
         vm.expectRevert("Invalid beneficiary address");
         factory.updateBeneficiary(0, address(0));
@@ -209,7 +209,7 @@ contract UpdateBeneficiaryTest is Test {
 
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary1);
+        factory.depositEth{value: 1 ether}(_beneficiary1);
 
         vm.expectRevert("Contract beneficiary not approved. Use approveContractBeneficiary first");
         factory.updateBeneficiary(0, address(contractBeneficiary));
@@ -223,7 +223,7 @@ contract UpdateBeneficiaryTest is Test {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
         factory.approveContractBeneficiary(address(contractBeneficiary));
-        factory.depositETH{value: 1 ether}(_beneficiary1);
+        factory.depositEth{value: 1 ether}(_beneficiary1);
 
         // Should work with approved contract
         factory.updateBeneficiary(0, address(contractBeneficiary));
@@ -239,9 +239,9 @@ contract UpdateBeneficiaryTest is Test {
         vm.deal(_grantor, 10 ether);
 
         // Deposit multiple assets
-        factory.depositETH{value: 1 ether}(_beneficiary1);
-        factory.depositETH{value: 2 ether}(_beneficiary1);
-        factory.depositETH{value: 3 ether}(_beneficiary1);
+        factory.depositEth{value: 1 ether}(_beneficiary1);
+        factory.depositEth{value: 2 ether}(_beneficiary1);
+        factory.depositEth{value: 3 ether}(_beneficiary1);
 
         // Update middle asset
         factory.updateBeneficiary(1, _beneficiary2);
@@ -262,7 +262,7 @@ contract UpdateBeneficiaryTest is Test {
 
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary1);
+        factory.depositEth{value: 1 ether}(_beneficiary1);
 
         // First update
         factory.updateBeneficiary(0, _beneficiary2);
@@ -286,7 +286,7 @@ contract UpdateBeneficiaryTest is Test {
     function testClaimAssetWithUpdatedBeneficiary() public {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary1);
+        factory.depositEth{value: 1 ether}(_beneficiary1);
 
         // Update beneficiary
         factory.updateBeneficiary(0, _beneficiary2);
@@ -318,9 +318,9 @@ contract UpdateBeneficiaryTest is Test {
         vm.deal(_grantor, 10 ether);
 
         // Deposit assets for beneficiary1
-        factory.depositETH{value: 1 ether}(_beneficiary1);
-        factory.depositETH{value: 2 ether}(_beneficiary1);
-        factory.depositETH{value: 3 ether}(_beneficiary2);
+        factory.depositEth{value: 1 ether}(_beneficiary1);
+        factory.depositEth{value: 2 ether}(_beneficiary1);
+        factory.depositEth{value: 3 ether}(_beneficiary2);
 
         // Update one asset from beneficiary1 to beneficiary2
         factory.updateBeneficiary(0, _beneficiary2);
@@ -348,7 +348,7 @@ contract UpdateBeneficiaryTest is Test {
 
         // Deposit multiple assets
         for (uint8 i = 0; i < assetCount; i++) {
-            factory.depositETH{value: 1 ether}(_beneficiary1);
+            factory.depositEth{value: 1 ether}(_beneficiary1);
         }
 
         // Update specific asset
@@ -373,7 +373,7 @@ contract UpdateBeneficiaryTest is Test {
 
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary1);
+        factory.depositEth{value: 1 ether}(_beneficiary1);
         vm.stopPrank();
 
         // Warp to some point during active period

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-import {Test, console} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {DigitalWillFactory} from "../src/DigitalWillFactory.sol";
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -36,7 +36,7 @@ contract MockERC721 is ERC721 {
 contract ClaimAssetTest is Test {
     DigitalWillFactory public factory;
     MockERC20 public mockToken;
-    MockERC721 public mockNFT;
+    MockERC721 public mockNft;
 
     address public _grantor;
     address public _randomUser;
@@ -62,7 +62,7 @@ contract ClaimAssetTest is Test {
 
         // Deploy mock contracts
         mockToken = new MockERC20("MockToken", "MTK");
-        mockNFT = new MockERC721("MockNFT", "MNFT");
+        mockNft = new MockERC721("MockNFT", "MNFT");
 
         // Deploy factory
         factory = new DigitalWillFactory();
@@ -89,7 +89,7 @@ contract ClaimAssetTest is Test {
         // Setup: Deposit an ETH asset
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
         // Try to claim before heartbeat expires
@@ -102,7 +102,7 @@ contract ClaimAssetTest is Test {
         // Setup: Deposit an ETH asset
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
         // Make contract claimable
@@ -118,8 +118,8 @@ contract ClaimAssetTest is Test {
         // Setup: Deposit two ETH assets so contract doesn't complete after first claim
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
         // Make contract claimable
@@ -142,7 +142,7 @@ contract ClaimAssetTest is Test {
         // Setup: Deposit an ETH asset
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
         // Make contract claimable
@@ -158,7 +158,7 @@ contract ClaimAssetTest is Test {
         // Setup: Deposit an ETH asset
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
         // Beneficiary accepts designation
@@ -189,7 +189,7 @@ contract ClaimAssetTest is Test {
         // Setup: Deposit ETH
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: depositAmount}(_beneficiary);
+        factory.depositEth{value: depositAmount}(_beneficiary);
         vm.stopPrank();
 
         // Beneficiary accepts designation
@@ -258,10 +258,10 @@ contract ClaimAssetTest is Test {
 
     function testClaimSpecificAssetERC721Successfully() public {
         // Setup: Deposit ERC721
-        uint256 tokenId = mockNFT.mint(_grantor);
+        uint256 tokenId = mockNft.mint(_grantor);
         vm.startPrank(_grantor);
-        mockNFT.approve(address(factory), tokenId);
-        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        mockNft.approve(address(factory), tokenId);
+        factory.depositERC721(address(mockNft), tokenId, _beneficiary);
         vm.stopPrank();
 
         // Beneficiary accepts designation
@@ -275,7 +275,7 @@ contract ClaimAssetTest is Test {
         factory.claimAsset(_grantor, 0);
 
         // Verify NFT transferred
-        assertEq(mockNFT.ownerOf(tokenId), _beneficiary, "Beneficiary should own the NFT");
+        assertEq(mockNft.ownerOf(tokenId), _beneficiary, "Beneficiary should own the NFT");
 
         // Verify asset marked as claimed
         (,,,,, bool claimed) = factory.getAsset(_grantor, 0);
@@ -288,7 +288,7 @@ contract ClaimAssetTest is Test {
         // Setup: Deposit ETH
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: depositAmount}(_beneficiary);
+        factory.depositEth{value: depositAmount}(_beneficiary);
         vm.stopPrank();
 
         // Beneficiary accepts designation
@@ -310,7 +310,7 @@ contract ClaimAssetTest is Test {
         // Setup: Deposit one ETH asset
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
         // Beneficiary accepts designation
@@ -343,15 +343,15 @@ contract ClaimAssetTest is Test {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
 
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
 
         mockToken.mint(_grantor, 1000 * 10 ** 18);
         mockToken.approve(address(factory), 1000 * 10 ** 18);
         factory.depositERC20(address(mockToken), 1000 * 10 ** 18, _beneficiary);
 
-        uint256 tokenId = mockNFT.mint(_grantor);
-        mockNFT.approve(address(factory), tokenId);
-        factory.depositERC721(address(mockNFT), tokenId, _beneficiary);
+        uint256 tokenId = mockNft.mint(_grantor);
+        mockNft.approve(address(factory), tokenId);
+        factory.depositERC721(address(mockNft), tokenId, _beneficiary);
         vm.stopPrank();
 
         // Beneficiary accepts designation
@@ -400,9 +400,9 @@ contract ClaimAssetTest is Test {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
 
-        factory.depositETH{value: 1 ether}(beneficiary1);
-        factory.depositETH{value: 2 ether}(beneficiary2);
-        factory.depositETH{value: 3 ether}(beneficiary3);
+        factory.depositEth{value: 1 ether}(beneficiary1);
+        factory.depositEth{value: 2 ether}(beneficiary2);
+        factory.depositEth{value: 3 ether}(beneficiary3);
         vm.stopPrank();
 
         // Beneficiaries accept designation
@@ -440,8 +440,8 @@ contract ClaimAssetTest is Test {
         // Setup: Deposit assets for different beneficiaries
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(beneficiary1);
-        factory.depositETH{value: 2 ether}(beneficiary2);
+        factory.depositEth{value: 1 ether}(beneficiary1);
+        factory.depositEth{value: 2 ether}(beneficiary2);
         vm.stopPrank();
 
         // Make contract claimable
@@ -462,9 +462,9 @@ contract ClaimAssetTest is Test {
         // Setup: Deposit multiple assets
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
-        factory.depositETH{value: 2 ether}(_beneficiary);
-        factory.depositETH{value: 3 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 2 ether}(_beneficiary);
+        factory.depositEth{value: 3 ether}(_beneficiary);
         vm.stopPrank();
 
         // Beneficiary accepts designation
@@ -500,9 +500,9 @@ contract ClaimAssetTest is Test {
         // Setup: Deposit multiple assets
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
-        factory.depositETH{value: 2 ether}(_beneficiary);
-        factory.depositETH{value: 3 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 2 ether}(_beneficiary);
+        factory.depositEth{value: 3 ether}(_beneficiary);
         vm.stopPrank();
 
         // Make contract claimable
@@ -537,7 +537,7 @@ contract ClaimAssetTest is Test {
         // Setup: Deposit an asset
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
         // Beneficiary accepts designation
@@ -572,15 +572,15 @@ contract ClaimAssetTest is Test {
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
 
-        factory.depositETH{value: ethAmount}(_beneficiary);
+        factory.depositEth{value: ethAmount}(_beneficiary);
 
         mockToken.mint(_grantor, tokenAmount);
         mockToken.approve(address(factory), tokenAmount);
         factory.depositERC20(address(mockToken), tokenAmount, _beneficiary);
 
-        nftTokenId = mockNFT.mint(_grantor);
-        mockNFT.approve(address(factory), nftTokenId);
-        factory.depositERC721(address(mockNFT), nftTokenId, _beneficiary);
+        nftTokenId = mockNft.mint(_grantor);
+        mockNft.approve(address(factory), nftTokenId);
+        factory.depositERC721(address(mockNft), nftTokenId, _beneficiary);
         vm.stopPrank();
 
         // Beneficiary accepts designation
@@ -601,7 +601,7 @@ contract ClaimAssetTest is Test {
         // Verify all assets transferred correctly
         assertEq(_beneficiary.balance, ethAmount, "Should receive ETH");
         assertEq(mockToken.balanceOf(_beneficiary), tokenAmount, "Should receive tokens");
-        assertEq(mockNFT.ownerOf(nftTokenId), _beneficiary, "Should own NFT");
+        assertEq(mockNft.ownerOf(nftTokenId), _beneficiary, "Should own NFT");
 
         // Verify contract completed
         (,, DigitalWillFactory.ContractState willState,) = factory.getWillInfo(_grantor);
@@ -614,9 +614,9 @@ contract ClaimAssetTest is Test {
         // Setup: Deposit multiple ETH assets to same beneficiary
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
-        factory.depositETH{value: 2 ether}(_beneficiary);
-        factory.depositETH{value: 3 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 2 ether}(_beneficiary);
+        factory.depositEth{value: 3 ether}(_beneficiary);
         vm.stopPrank();
 
         // Beneficiary accepts designation
@@ -642,7 +642,7 @@ contract ClaimAssetTest is Test {
         // Setup: Deposit an asset
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
         // Beneficiary accepts designation
@@ -669,7 +669,7 @@ contract ClaimAssetTest is Test {
         vm.deal(_grantor, numAssets * 1 ether);
 
         for (uint256 i = 0; i < numAssets; i++) {
-            factory.depositETH{value: 1 ether}(_beneficiary);
+            factory.depositEth{value: 1 ether}(_beneficiary);
         }
         vm.stopPrank();
 
@@ -700,7 +700,7 @@ contract ClaimAssetTest is Test {
         // Setup: Deposit an asset
         vm.startPrank(_grantor);
         vm.deal(_grantor, 10 ether);
-        factory.depositETH{value: 1 ether}(_beneficiary);
+        factory.depositEth{value: 1 ether}(_beneficiary);
         vm.stopPrank();
 
         // Beneficiary accepts designation

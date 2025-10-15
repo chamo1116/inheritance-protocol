@@ -4,7 +4,7 @@ pragma solidity 0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
-import "../src/DigitalWillFactory.sol";
+import {DigitalWillFactory} from "../src/DigitalWillFactory.sol";
 
 /**
  * @title Base
@@ -76,11 +76,11 @@ contract Base is Test {
      * @param amount Amount of ETH to deposit
      * @param beneficiary The beneficiary of the asset
      */
-    function depositETH(address grantor, uint256 amount, address beneficiary) internal {
+    function depositEth(address grantor, uint256 amount, address beneficiary) internal {
         // Add to existing balance instead of setting it
         vm.deal(grantor, grantor.balance + amount);
         vm.prank(grantor);
-        factory.depositETH{value: amount}(beneficiary);
+        factory.depositEth{value: amount}(beneficiary);
     }
 
     /**
@@ -236,12 +236,12 @@ contract Base is Test {
      * @param depositAmount Amount of ETH to deposit
      * @return assetIndex The index of the deposited asset
      */
-    function setupWillWithETH(address grantor, address beneficiary, uint256 depositAmount)
+    function setupWillWithEth(address grantor, address beneficiary, uint256 depositAmount)
         internal
         returns (uint256 assetIndex)
     {
         setupBasicWill(grantor);
-        depositETH(grantor, depositAmount, beneficiary);
+        depositEth(grantor, depositAmount, beneficiary);
         acceptBeneficiary(beneficiary, grantor);
         return 0; // First asset index
     }
@@ -253,7 +253,7 @@ contract Base is Test {
      * @param depositAmount Amount of ETH to deposit
      */
     function setupClaimableWill(address grantor, address beneficiary, uint256 depositAmount) internal {
-        setupWillWithETH(grantor, beneficiary, depositAmount);
+        setupWillWithEth(grantor, beneficiary, depositAmount);
         makeWillClaimable(grantor);
     }
 

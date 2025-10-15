@@ -121,17 +121,17 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
 
     // Modifiers
     modifier willExists() {
-        require(wills[msg.sender].state != ContractState.INACTIVE, "Will does not exist");
+        _willExists();
         _;
     }
 
     modifier willActive() {
-        require(wills[msg.sender].state == ContractState.ACTIVE, "Will must be active");
+        _willActive();
         _;
     }
 
     modifier willNotCompleted(address grantor) {
-        require(wills[grantor].state != ContractState.COMPLETED, "Will already completed");
+        _willNotCompleted(grantor);
         _;
     }
 
@@ -193,7 +193,7 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
     /**
      * Deposit ETH function
      */
-    function depositETH(address _beneficiary) external payable whenNotPaused willExists willActive {
+    function depositEth(address _beneficiary) external payable whenNotPaused willExists willActive {
         require(msg.value > 0, "Must send ETH");
         _validateBeneficiary(_beneficiary);
 
@@ -220,7 +220,7 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
      * Fallback function to receive ETH
      */
     receive() external payable {
-        revert("Use depositETH function");
+        revert("Use depositEth function");
     }
 
     /**
@@ -717,5 +717,26 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
             will.state = ContractState.COMPLETED;
             emit WillCompleted(_grantor);
         }
+    }
+
+    /**
+     * Internal function for willExists modifier
+     */
+    function _willExists() internal view {
+        require(wills[msg.sender].state != ContractState.INACTIVE, "Will does not exist");
+    }
+
+    /**
+     * Internal function for willActive modifier
+     */
+    function _willActive() internal view {
+        require(wills[msg.sender].state == ContractState.ACTIVE, "Will must be active");
+    }
+
+    /**
+     * Internal function for willNotCompleted modifier
+     */
+    function _willNotCompleted(address grantor) internal view {
+        require(wills[grantor].state != ContractState.COMPLETED, "Will already completed");
     }
 }

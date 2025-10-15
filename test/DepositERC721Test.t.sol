@@ -379,6 +379,9 @@ contract DepositERC721Test is Test {
         vm.assume(beneficiary1 != address(0));
         vm.assume(beneficiary2 != address(0));
         vm.assume(beneficiary1 != beneficiary2);
+        // Ensure addresses are not contracts (EOAs only)
+        vm.assume(beneficiary1.code.length == 0);
+        vm.assume(beneficiary2.code.length == 0);
 
         vm.startPrank(_grantor);
 

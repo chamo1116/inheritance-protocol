@@ -191,16 +191,17 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
 
         Will storage will = wills[msg.sender];
 
-        will.assets.push(
-            Asset({
-                assetType: AssetType.ETH,
-                tokenAddress: address(0),
-                tokenId: 0,
-                amount: msg.value,
-                beneficiary: _beneficiary,
-                claimed: false
-            })
-        );
+        will.assets
+            .push(
+                Asset({
+                    assetType: AssetType.ETH,
+                    tokenAddress: address(0),
+                    tokenId: 0,
+                    amount: msg.value,
+                    beneficiary: _beneficiary,
+                    claimed: false
+                })
+            );
 
         will.unclaimedAssetsCount++;
 
@@ -231,16 +232,17 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
         token.safeTransferFrom(msg.sender, address(this), _amount);
 
         Will storage will = wills[msg.sender];
-        will.assets.push(
-            Asset({
-                assetType: AssetType.ERC20,
-                tokenAddress: _tokenAddress,
-                tokenId: 0,
-                amount: _amount,
-                beneficiary: _beneficiary,
-                claimed: false
-            })
-        );
+        will.assets
+            .push(
+                Asset({
+                    assetType: AssetType.ERC20,
+                    tokenAddress: _tokenAddress,
+                    tokenId: 0,
+                    amount: _amount,
+                    beneficiary: _beneficiary,
+                    claimed: false
+                })
+            );
 
         will.unclaimedAssetsCount++;
 
@@ -270,16 +272,17 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
         depositedERC721[msg.sender][_tokenAddress][_tokenId] = true;
 
         Will storage will = wills[msg.sender];
-        will.assets.push(
-            Asset({
-                assetType: AssetType.ERC721,
-                tokenAddress: _tokenAddress,
-                tokenId: _tokenId,
-                amount: 1,
-                beneficiary: _beneficiary,
-                claimed: false
-            })
-        );
+        will.assets
+            .push(
+                Asset({
+                    assetType: AssetType.ERC721,
+                    tokenAddress: _tokenAddress,
+                    tokenId: _tokenId,
+                    amount: 1,
+                    beneficiary: _beneficiary,
+                    claimed: false
+                })
+            );
 
         will.unclaimedAssetsCount++;
 

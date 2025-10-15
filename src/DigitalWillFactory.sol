@@ -50,6 +50,14 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
     // Storage
     mapping(address => Will) private wills;
 
+    // Mapping to track approved contract beneficiaries per grantor
+    // grantor => beneficiary => approved
+    mapping(address => mapping(address => bool)) private approvedContractBeneficiaries;
+
+    // Mapping to track deposited ERC721 tokens to prevent duplicates
+    // grantor => tokenAddress => tokenId => exists
+    mapping(address => mapping(address => mapping(uint256 => bool))) private depositedERC721;
+
     // Constructor
     constructor() Ownable(msg.sender) {}
 
@@ -82,6 +90,10 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
     event HeartbeatExtended(address indexed grantor, uint256 newInterval);
 
     event EmergencyWithdraw(address indexed grantor, uint256 assetsReturned);
+
+    event ContractBeneficiaryApproved(address indexed grantor, address indexed beneficiary);
+
+    event ContractBeneficiaryRevoked(address indexed grantor, address indexed beneficiary);
 
     // Modifiers
     modifier willExists() {
@@ -158,7 +170,7 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
      */
     function depositETH(address _beneficiary) external payable whenNotPaused willExists willActive {
         require(msg.value > 0, "Must send ETH");
-        require(_beneficiary != address(0), "Invalid beneficiary address");
+        _validateBeneficiary(_beneficiary);
 
         Will storage will = wills[msg.sender];
         uint256 assetIndex = will.assets.length;
@@ -196,9 +208,9 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
         willExists
         willActive
     {
-        require(_tokenAddress != address(0), "Invalid token address");
+        _validateTokenContract(_tokenAddress);
         require(_amount > 0, "Amount must be greater than 0");
-        require(_beneficiary != address(0), "Invalid beneficiary address");
+        _validateBeneficiary(_beneficiary);
 
         IERC20 token = IERC20(_tokenAddress);
         token.safeTransferFrom(msg.sender, address(this), _amount);
@@ -231,12 +243,18 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
         willExists
         willActive
     {
-        require(_tokenAddress != address(0), "Invalid token address");
-        require(_beneficiary != address(0), "Invalid beneficiary address");
+        _validateTokenContract(_tokenAddress);
+        _validateBeneficiary(_beneficiary);
+
+        // Check for duplicate ERC721 deposit
+        require(!depositedERC721[msg.sender][_tokenAddress][_tokenId], "This NFT has already been deposited");
 
         IERC721 nft = IERC721(_tokenAddress);
         require(nft.ownerOf(_tokenId) == msg.sender, "Not the owner of NFT");
         nft.safeTransferFrom(msg.sender, address(this), _tokenId);
+
+        // Mark this NFT as deposited
+        depositedERC721[msg.sender][_tokenAddress][_tokenId] = true;
 
         Will storage will = wills[msg.sender];
         uint256 assetIndex = will.assets.length;
@@ -321,6 +339,8 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
                 IERC20(asset.tokenAddress).safeTransfer(msg.sender, asset.amount);
             } else if (asset.assetType == AssetType.ERC721) {
                 IERC721(asset.tokenAddress).safeTransferFrom(address(this), msg.sender, asset.tokenId);
+                // Clear the deposited flag to allow re-deposit if needed
+                depositedERC721[msg.sender][asset.tokenAddress][asset.tokenId] = false;
             }
 
             // Mark asset as claimed and decrement counter
@@ -394,14 +414,79 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
         _unpause();
     }
 
+    /**
+     * Approve a contract address as a beneficiary
+     * This is required before assigning assets to contract addresses
+     */
+    function approveContractBeneficiary(address _beneficiary) external willExists {
+        require(_beneficiary != address(0), "Invalid beneficiary address");
+        require(_isContract(_beneficiary), "Address is not a contract");
+
+        approvedContractBeneficiaries[msg.sender][_beneficiary] = true;
+        emit ContractBeneficiaryApproved(msg.sender, _beneficiary);
+    }
+
+    /**
+     * Revoke approval for a contract beneficiary
+     */
+    function revokeContractBeneficiary(address _beneficiary) external willExists {
+        approvedContractBeneficiaries[msg.sender][_beneficiary] = false;
+        emit ContractBeneficiaryRevoked(msg.sender, _beneficiary);
+    }
+
+    /**
+     * Check if a beneficiary is approved (for contracts) or valid (for EOAs)
+     */
+    function isApprovedBeneficiary(address _grantor, address _beneficiary) external view returns (bool) {
+        if (_isContract(_beneficiary)) {
+            return approvedContractBeneficiaries[_grantor][_beneficiary];
+        }
+        return _beneficiary != address(0);
+    }
+
     // Internal functions
+
+    /**
+     * Check if an address is a contract
+     */
+    function _isContract(address _account) internal view returns (bool) {
+        // Check if the address has code
+        uint256 size;
+        assembly {
+            size := extcodesize(_account)
+        }
+        return size > 0;
+    }
+
+    /**
+     * Validate beneficiary address
+     */
+    function _validateBeneficiary(address _beneficiary) internal view {
+        require(_beneficiary != address(0), "Invalid beneficiary address");
+
+        // Check if beneficiary is a contract
+        if (_isContract(_beneficiary)) {
+            require(
+                approvedContractBeneficiaries[msg.sender][_beneficiary],
+                "Contract beneficiary not approved. Use approveContractBeneficiary first"
+            );
+        }
+    }
+
+    /**
+     * Validate token contract address
+     */
+    function _validateTokenContract(address _tokenAddress) internal view {
+        require(_tokenAddress != address(0), "Invalid token address");
+        require(_isContract(_tokenAddress), "Token address must be a contract");
+    }
 
     /**
      * Internal function to transfer an asset to beneficiary
      */
-    function _transferAsset(address grantor, uint256 assetIndex) internal {
-        Will storage will = wills[grantor];
-        Asset storage asset = will.assets[assetIndex];
+    function _transferAsset(address _grantor, uint256 _assetIndex) internal {
+        Will storage will = wills[_grantor];
+        Asset storage asset = will.assets[_assetIndex];
 
         if (asset.assetType == AssetType.ETH) {
             // Transfer ETH
@@ -413,27 +498,28 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
         } else if (asset.assetType == AssetType.ERC721) {
             // Transfer ERC721
             IERC721(asset.tokenAddress).safeTransferFrom(address(this), asset.beneficiary, asset.tokenId);
+            // Clear the deposited flag to allow re-deposit if needed
+            depositedERC721[_grantor][asset.tokenAddress][asset.tokenId] = false;
         }
 
         asset.claimed = true;
         will.unclaimedAssetsCount--;
 
         emit AssetClaimed(
-            grantor, asset.beneficiary, assetIndex, asset.assetType, asset.tokenAddress, asset.tokenId, asset.amount
+            _grantor, asset.beneficiary, _assetIndex, asset.assetType, asset.tokenAddress, asset.tokenId, asset.amount
         );
     }
 
     /**
      * Internal function to check if will is completed
-     * Uses counter-based approach to avoid gas issues with large asset arrays
      */
-    function _checkCompletion(address grantor) internal {
-        Will storage will = wills[grantor];
+    function _checkCompletion(address _grantor) internal {
+        Will storage will = wills[_grantor];
 
         // Check if all assets have been claimed using the counter
         if (will.unclaimedAssetsCount == 0 && will.assets.length > 0) {
             will.state = ContractState.COMPLETED;
-            emit WillCompleted(grantor);
+            emit WillCompleted(_grantor);
         }
     }
 }

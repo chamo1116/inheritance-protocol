@@ -320,7 +320,7 @@ contract BeneficiaryAcceptanceTest is Base {
         factory.claimAsset(grantor, 0);
     }
 
-    function test_HasBeneficiaryAccepted_ReturnsFalseByDefault() public {
+    function test_HasBeneficiaryAccepted_ReturnsFalseByDefault() public view {
         assertFalse(factory.hasBeneficiaryAccepted(grantor, beneficiary1));
         assertFalse(factory.hasBeneficiaryAccepted(grantor, beneficiary2));
     }

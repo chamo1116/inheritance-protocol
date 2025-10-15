@@ -309,6 +309,7 @@ contract Base is Test {
      */
     function assertWillState(address grantor, DigitalWillFactory.ContractState expectedState, string memory message)
         internal
+        view
     {
         DigitalWillFactory.ContractState actualState = getWillState(grantor);
         assertEq(uint256(actualState), uint256(expectedState), message);
@@ -329,7 +330,7 @@ contract Base is Test {
      * @param grantor The grantor address
      * @param assetIndex The asset index
      */
-    function assertAssetClaimed(address grantor, uint256 assetIndex) internal {
+    function assertAssetClaimed(address grantor, uint256 assetIndex) internal view {
         (,,,,, bool claimed) = factory.getAsset(grantor, assetIndex);
         assertTrue(claimed, "Asset should be claimed");
     }
@@ -339,7 +340,7 @@ contract Base is Test {
      * @param grantor The grantor address
      * @param assetIndex The asset index
      */
-    function assertAssetNotClaimed(address grantor, uint256 assetIndex) internal {
+    function assertAssetNotClaimed(address grantor, uint256 assetIndex) internal view {
         (,,,,, bool claimed) = factory.getAsset(grantor, assetIndex);
         assertFalse(claimed, "Asset should not be claimed");
     }
@@ -349,7 +350,7 @@ contract Base is Test {
      * @param grantor The grantor address
      * @param beneficiary The beneficiary address
      */
-    function assertBeneficiaryAccepted(address grantor, address beneficiary) internal {
+    function assertBeneficiaryAccepted(address grantor, address beneficiary) internal view {
         assertTrue(factory.hasBeneficiaryAccepted(grantor, beneficiary), "Beneficiary should have accepted");
     }
 
@@ -358,7 +359,7 @@ contract Base is Test {
      * @param grantor The grantor address
      * @param beneficiary The beneficiary address
      */
-    function assertBeneficiaryNotAccepted(address grantor, address beneficiary) internal {
+    function assertBeneficiaryNotAccepted(address grantor, address beneficiary) internal view {
         assertFalse(factory.hasBeneficiaryAccepted(grantor, beneficiary), "Beneficiary should not have accepted");
     }
 }

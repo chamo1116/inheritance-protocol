@@ -147,7 +147,7 @@ contract DigitalWillFactory is ReentrancyGuard, IERC721Receiver, Pausable, Ownab
 
     /**
      * Update will state based on heartbeat
-     * Only grantor or beneficiaries can update state to prevent DDOS
+     * Only grantor or beneficiaries can update state to prevent DoS
      */
     function updateState(address grantor) public {
         // Access control: Only grantor or beneficiaries can update state
